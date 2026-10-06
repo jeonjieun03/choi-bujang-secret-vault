@@ -19,6 +19,17 @@ export function deploymentIdentity(env, config) {
       || !/^[A-Z0-9_]{1,80}$/u.test(config.sampleMarker)) {
     throw new Error('배포 식별 정보를 확인할 수 없습니다. Vercel 시스템 환경변수와 aleph.config.json의 단계를 확인하세요.');
   }
+  // 5단계부터: 원본 자료 API 주소(쿼리 없는 HTTPS)를 배포 정보에도 기록합니다. 비밀값은 넣지 않습니다.
+  let originalApiUrl;
+  if (config.originalApiUrl != null) {
+    let url;
+    try { url = new URL(config.originalApiUrl); } catch { url = null; }
+    if (!url || url.protocol !== 'https:' || url.username || url.password
+        || url.search || url.hash || config.originalApiUrl.includes('?')) {
+      throw new Error('aleph.config.json의 originalApiUrl은 쿼리 없는 HTTPS 주소여야 합니다.');
+    }
+    originalApiUrl = url.href;
+  }
   return {
     schema: 'aleph.defense.deployment.v1',
     step: config.step,
@@ -27,5 +38,6 @@ export function deploymentIdentity(env, config) {
     publicAppUrl: `https://${host.toLowerCase()}`,
     judgeIssuer: config.judgeIssuer,
     sampleMarker: config.sampleMarker,
+    ...(originalApiUrl ? { originalApiUrl } : {}),
   };
 }
