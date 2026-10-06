@@ -5,9 +5,6 @@ import { deploymentIdentity } from './deployment-identity.mjs';
 const root = resolve(import.meta.dirname, '..');
 const staleOutput = resolve(root, 'public', 'data.json');
 const config = JSON.parse(await readFile(resolve(root, 'aleph.config.json'), 'utf8'));
-if (config.step !== 1) {
-  throw new Error('1단계 이후에는 공개 data.json 복사를 끝내고 보호된 자료 API로 바꾸세요.');
-}
 // 2단계: 메모는 서버 함수 /api/notes가 학습용 DB에서 읽습니다.
 // 정적 /data.json은 더 이상 만들지 않고, 남아 있던 파일도 지웁니다.
 await mkdir(resolve(root, 'public'), { recursive: true });
