@@ -30,6 +30,12 @@ export function deploymentIdentity(env, config) {
     }
     originalApiUrl = url.href;
   }
+  // 허용 경로(예: "GET /api/notes/:id")도 배포 정보에 기록합니다.
+  const allowedRoutes = Array.isArray(config.allowedRoutes) ? config.allowedRoutes : [];
+  if (allowedRoutes.length > 40 || allowedRoutes.some(route => typeof route !== 'string'
+      || !/^(GET|POST|PUT|PATCH|DELETE) \/[A-Za-z0-9/:._-]{0,200}$/u.test(route))) {
+    throw new Error('aleph.config.json의 allowedRoutes 형식을 확인하세요("메서드 /경로").');
+  }
   return {
     schema: 'aleph.defense.deployment.v1',
     step: config.step,
@@ -39,5 +45,6 @@ export function deploymentIdentity(env, config) {
     judgeIssuer: config.judgeIssuer,
     sampleMarker: config.sampleMarker,
     ...(originalApiUrl ? { originalApiUrl } : {}),
+    ...(allowedRoutes.length ? { allowedRoutes } : {}),
   };
 }

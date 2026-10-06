@@ -82,9 +82,8 @@
   </main>
 
   <script type="module">
-    // 공개용 값입니다(Project URL, publishable key). 서버 전용 secret 키는 절대 넣지 않습니다.
-    const SUPABASE_URL = 'https://rdcumwwanpqiqyzzuquw.supabase.co';
-    const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_uz53n-hqIKB8dKXR3aZAWw_U4CYUs46';
+    // 이 화면에는 Supabase 주소나 키가 없습니다. 로그인·자료 요청은 모두 서버 함수(/api/session, /api/notes)로 갑니다.
+    const SESSION_KEY = 'byteback.session';
 
     const $ = selector => document.querySelector(selector);
     const signedOut = $('#signed-out');
@@ -98,7 +97,7 @@
     }
 
     function render(session) {
-      const user = session?.user ?? null;
+      const user = session?.access_token ? { email: session.email ?? '' } : null;
       signedOut.hidden = Boolean(user);
       signedIn.hidden = !user;
       $('#who-email').textContent = user?.email ?? '';
@@ -148,7 +147,9 @@
       INVALID_NOTE: '제목과 내용을 입력하세요(제목 120자, 내용 2000자 이내).', INVALID_ID: '메모 ID 형식이 맞지 않습니다.',
       NOT_FOUND: '메모를 찾을 수 없습니다. 이미 지워졌거나 내 메모가 아닙니다.', OWNER_CHANGE_FORBIDDEN: '메모 주인은 바꿀 수 없습니다.', ID_ALREADY_EXISTS: '같은 ID의 메모가 이미 있습니다.',
     };
-    async function api(path, { method = 'GET', body } = {}) {
+    async function api(path, { method = 'GET', body } = {}, retried = false) {
+      if (!currentSession?.access_token) throw new Error(REASONS.LOGIN_REQUIRED);
+      if (!retried && sessionExpiresSoon(currentSession)) await refreshSession();
       const token = currentSession?.access_token;
       if (!token) throw new Error(REASONS.LOGIN_REQUIRED);
       const headers = { Authorization: `Bearer ${token}` };
@@ -156,6 +157,9 @@
       const response = await fetch(path, {
         method, headers, cache: 'no-store', body: body === undefined ? undefined : JSON.stringify(body),
       });
+      if (response.status === 401 && !retried && await refreshSession()) {
+        return api(path, { method, body }, true);
+      }
       if (response.status === 204) return null;
       const data = await response.json().catch(() => null);
       if (!response.ok) throw new Error(REASONS[data?.error] ?? '요청을 처리하지 못했습니다.');
@@ -237,26 +241,54 @@
       finally { button.disabled = false; }
     });
 
-    let supabase = null;
-    if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
-      showError('로그인 설정(Project URL, publishable key)이 아직 비어 있습니다.');
-      loginButton.disabled = true;
-    } else {
+    // 세션 보관: 새로고침해도 로그인이 유지되도록 이 브라우저에만 저장합니다(비밀번호는 저장하지 않음).
+    function saveSession(session) {
       try {
-        const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/+esm');
-        supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
-        const { data } = await supabase.auth.getSession();
-        render(data.session);
-        supabase.auth.onAuthStateChange((_event, session) => render(session));
-      } catch {
-        showError('로그인 도구를 불러오지 못했습니다. 네트워크를 확인하고 새로고침하세요.');
-        loginButton.disabled = true;
+        if (session) localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+        else localStorage.removeItem(SESSION_KEY);
+      } catch { /* 저장소를 못 쓰면 이 창에서만 유지 */ }
+    }
+    function loadSavedSession() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(SESSION_KEY) ?? 'null');
+        return saved?.access_token && saved?.refresh_token ? saved : null;
+      } catch { return null; }
+    }
+    function sessionExpiresSoon(session) {
+      return Number.isFinite(session?.expires_at) && session.expires_at - 60 <= Date.now() / 1000;
+    }
+    async function sessionCall(payload, token) {
+      const headers = { 'Content-Type': 'application/json' };
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const response = await fetch('/api/session', {
+        method: 'POST', headers, cache: 'no-store', body: JSON.stringify(payload),
+      });
+      if (response.status === 204) return { data: null };
+      const data = await response.json().catch(() => null);
+      return response.ok ? { data } : { error: { code: data?.error, message: data?.message } };
+    }
+    function setSession(session) {
+      saveSession(session);
+      render(session);
+    }
+    let refreshing = null;
+    async function refreshSession() {
+      const token = currentSession?.refresh_token;
+      if (!token) return false;
+      refreshing ??= sessionCall({ action: 'refresh', refresh_token: token }).finally(() => { refreshing = null; });
+      const { data, error } = await refreshing;
+      if (error || !data?.access_token) {
+        saveSession(null);
+        render(null);
+        return false;
       }
+      currentSession = data;
+      saveSession(data);
+      return true;
     }
 
     $('#login-form').addEventListener('submit', async event => {
       event.preventDefault();
-      if (!supabase) return;
       const email = $('#email').value.trim();
       const password = $('#password').value;
       if (!email || !password) {
@@ -265,20 +297,32 @@
       }
       showError('');
       loginButton.disabled = true;
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      loginButton.disabled = false;
-      $('#password').value = '';
-      if (error) showError(explain(error));
+      try {
+        const { data, error } = await sessionCall({ action: 'login', email, password });
+        if (error) showError(explain(error));
+        else setSession(data);
+      } catch {
+        showError('로그인 서버에 연결하지 못했습니다. 잠시 뒤 다시 시도하세요.');
+      } finally {
+        loginButton.disabled = false;
+        $('#password').value = '';
+      }
     });
 
     $('#logout-button').addEventListener('click', async () => {
-      if (!supabase) return;
       showError('');
-      const { error } = await supabase.auth.signOut();
-      if (error) showError(`로그아웃에 실패했습니다. (${error.message})`);
+      const token = currentSession?.access_token;
+      setSession(null);
+      try { await sessionCall({ action: 'logout' }, token); } catch { /* 화면은 이미 로그아웃 상태 */ }
     });
 
-    if (!supabase) loadNotes();
+    // 처음 열 때: 저장된 세션이 있으면 필요할 때 갱신한 뒤 화면을 그립니다.
+    {
+      const saved = loadSavedSession();
+      currentSession = saved;
+      if (saved && sessionExpiresSoon(saved) && !(await refreshSession())) render(null);
+      else render(currentSession);
+    }
   </script>
 </body>
 </html>
