@@ -1,7 +1,7 @@
 // The student changes this check as each stage adds an attack to the same app.
 // Never return tokens, private keys, real names, or note bodies.
 export async function runAttackChecks(config) {
-  if (config.step === 3) return runStep3Checks(config);
+  if (config.step === 3 || config.step === 4) return runStep3Checks(config);
   if (config.step !== 1) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
   let app;
   try {
@@ -31,7 +31,8 @@ export async function runAttackChecks(config) {
     observed: visible ? '비로그인 요청에서 공개 가상 메모 확인 표시가 보임' : `비로그인 요청에서 확인 표시가 보이지 않음 (HTTP ${response.status})` }];
 }
 
-// 3단계 자기 점검: 로그인 없이(또는 엉터리 토큰으로) 실제 요청을 보내고 받은 상태 코드만 기록합니다.
+// 3·4단계 자기 점검: 로그인 없이(또는 엉터리 토큰으로) 실제 요청을 보내고 받은 상태 코드만 기록합니다.
+// 응답에 Vercel 배포 표시(x-vercel-id)가 없으면 사이트가 아닌 중간 장비의 응답이므로 미실행으로 남깁니다.
 // 토큰·메모 본문·이메일은 기록하지 않습니다. 요청을 보내지 못하면 미실행으로 남깁니다.
 // 정상 A 로그인 흐름은 비밀번호가 필요해 이 점검에서 요청하지 않습니다(미실행으로 기록).
 function appUrlFrom(config) {
@@ -51,6 +52,7 @@ async function statusOf(app, path, init = {}) {
     const response = await fetch(new URL(path, app), {
       redirect: 'error', signal: AbortSignal.timeout(10000), cache: 'no-store', ...init,
     });
+    if (!response.headers.get('x-vercel-id')) return { error: '배포 사이트에 닿지 못함(중간 장비 응답)' };
     return { status: response.status };
   } catch (error) {
     return { error: error?.name === 'TimeoutError' ? '시간 초과' : '네트워크 오류' };
@@ -83,5 +85,15 @@ async function runStep3Checks(config) {
   }
   results.push({ attackId: 'a_login_note_crud', expected: '정상 A 로그인은 메모 목록·추가·수정·삭제 가능',
     observed: '미실행: 로그인 비밀번호가 필요해 자동 점검에서 요청하지 않음' });
+  if (config.step >= 4) {
+    results.push({ attackId: 'b_reads_a_note', expected: 'B 로그인으로 A 메모 ID를 조회하면 404로 거부',
+      observed: '미실행: A·B 로그인 토큰이 필요해 자동 점검에서 요청하지 않음' });
+    results.push({ attackId: 'b_updates_a_note', expected: 'B 로그인으로 A 메모를 수정하면 404로 거부',
+      observed: '미실행: A·B 로그인 토큰이 필요해 자동 점검에서 요청하지 않음' });
+    results.push({ attackId: 'b_deletes_a_note', expected: 'B 로그인으로 A 메모를 삭제하면 404로 거부',
+      observed: '미실행: A·B 로그인 토큰이 필요해 자동 점검에서 요청하지 않음' });
+    results.push({ attackId: 'owner_change_on_update', expected: '수정 본문으로 메모 주인을 바꾸면 403으로 거부',
+      observed: '미실행: 로그인 토큰이 필요해 자동 점검에서 요청하지 않음' });
+  }
   return results;
 }
