@@ -27,7 +27,7 @@
 ## 2단계 기록: 자료를 코드 밖으로
 
 - 가상 메모 네 건은 학습용 Supabase의 `vault_notes` 테이블에 있습니다. RLS가 켜져 있고 `anon`·`authenticated`에는 읽기 권한이 없습니다. 이전용 SQL은 메모 문장이 들어 있어 저장소에 올리지 않습니다.
-- `data.json`과 배포된 `/data.json`에는 메모가 없습니다(`"notes": []`).
+- 정적 `data.json`은 저장소에서 지웠고, 빌드도 `/data.json`을 만들지 않습니다(1단계 확인 표시 `SAMPLE_NOTE_1` 포함 제거).
 - 화면(`/`)은 Vercel 서버 함수 `api/notes.js`(주소 `/api/notes`)를 불러 메모를 보여 줍니다. 함수는 환경변수 `SUPABASE_URL`과 서버 전용 `SUPABASE_SECRET_KEY`로 DB를 읽고, 키는 브라우저 파일·응답·로그에 넣지 않습니다.
 - 다시 실행하기: Vercel 프로젝트 **Settings → Environment Variables**에 두 값을 학생이 직접 넣고(Production), main에 푸시하거나 Redeploy 합니다. 키 값은 코드·Git·채팅에 적지 않습니다.
 
