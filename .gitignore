@@ -4,3 +4,5 @@ bundle-notes.json
 .env.*
 node_modules/
 public/aleph.json
+# 2단계 가상 메모 이전 SQL: 메모 문장이 들어 있어 공개 저장소에 올리지 않음
+supabase/step2_vault_notes.sql
