@@ -1,7 +1,7 @@
 // The student changes this check as each stage adds an attack to the same app.
 // Never return tokens, private keys, real names, or note bodies.
 export async function runAttackChecks(config) {
-  if (config.step === 3 || config.step === 4) return runStep3Checks(config);
+  if (config.step >= 3 && config.step <= 5) return runStep3Checks(config);
   if (config.step !== 1) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
   let app;
   try {
@@ -47,13 +47,17 @@ function appUrlFrom(config) {
   return app;
 }
 
-async function statusOf(app, path, init = {}) {
+async function statusOf(app, path, init = {}, origin = 'vercel') {
   try {
     const response = await fetch(new URL(path, app), {
       redirect: 'error', signal: AbortSignal.timeout(10000), cache: 'no-store', ...init,
     });
-    if (!response.headers.get('x-vercel-id')) return { error: '배포 사이트에 닿지 못함(중간 장비 응답)' };
-    return { status: response.status };
+    // 응답이 정말 목적지에서 왔는지 확인합니다(중간 장비의 응답은 미실행으로 처리).
+    const fromTarget = origin === 'vercel'
+      ? Boolean(response.headers.get('x-vercel-id'))
+      : [...response.headers.keys()].some(name => name.startsWith('sb-'));
+    if (!fromTarget) return { error: '목적지에 닿지 못함(중간 장비 응답)' };
+    return { status: response.status, response };
   } catch (error) {
     return { error: error?.name === 'TimeoutError' ? '시간 초과' : '네트워크 오류' };
   }
@@ -85,6 +89,31 @@ async function runStep3Checks(config) {
   }
   results.push({ attackId: 'a_login_note_crud', expected: '정상 A 로그인은 메모 목록·추가·수정·삭제 가능',
     observed: '미실행: 로그인 비밀번호가 필요해 자동 점검에서 요청하지 않음' });
+  if (config.step >= 5) {
+    // 원본 자료 API를 공개(publishable) 키로 직접 요청: 권한이 없어 거부되어야 합니다.
+    // 공개 키는 화면 코드에 원래 공개된 값이며, 결과에는 키를 기록하지 않습니다.
+    let original = null;
+    try { original = new URL(config.originalApiUrl); } catch { /* 아래에서 미실행 처리 */ }
+    const page = await statusOf(app, '/');
+    let html = '';
+    if (page.response) { try { html = await page.response.text(); } catch { html = ''; } }
+    const publishable = /sb_publishable_[A-Za-z0-9_-]{10,}/u.exec(html)?.[0] ?? null;
+    let direct;
+    if (!original || original.protocol !== 'https:' || original.search) {
+      direct = '미실행: aleph.config.json의 originalApiUrl이 쿼리 없는 HTTPS 주소가 아님';
+    } else if (!publishable) {
+      direct = page.error ? `미실행: 화면을 읽지 못함(${page.error})` : '미실행: 화면에서 공개 키를 찾지 못함';
+    } else {
+      const result = await statusOf(original, original.pathname + '?select=*&limit=1',
+        { headers: { apikey: publishable } }, 'supabase');
+      direct = result.error ? `미실행: ${result.error}로 요청을 보내지 못함`
+        : `HTTP ${result.status} 응답 (${result.status === 401 || result.status === 403 ? '예상과 같음' : '예상과 다름'})`;
+    }
+    results.push({ attackId: 'anon_key_original_api_read', expected: '공개 키로 원본 자료 API를 직접 조회하면 401 또는 403으로 거부', observed: direct });
+    results.push({ attackId: 'static_server_key_scan', expected: '배포된 화면에 서버 전용 키(sb_secret_ 등)가 없음',
+      observed: page.error ? `미실행: 화면을 읽지 못함(${page.error})`
+        : (/sb_secret_|service_role/u.test(html) ? '화면에서 서버 전용 키 표시를 찾음 (예상과 다름)' : '화면에서 서버 전용 키 표시를 찾지 못함 (예상과 같음)') });
+  }
   if (config.step >= 4) {
     results.push({ attackId: 'b_reads_a_note', expected: 'B 로그인으로 A 메모 ID를 조회하면 404로 거부',
       observed: '미실행: A·B 로그인 토큰이 필요해 자동 점검에서 요청하지 않음' });

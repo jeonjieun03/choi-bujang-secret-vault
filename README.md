@@ -1,16 +1,16 @@
-# BYTE BACK 방어전 자료실 — 4단계 저장점
+# BYTE BACK 방어전 자료실 — 5단계 저장점
 
 이 저장소는 BYTE BACK 방어전 시작 틀 R5에서 출발한 학생 자료실입니다. 메모는 모두 실습용 가상 자료입니다. 실제 학생 자료, 토큰, 비밀키를 넣지 마세요.
 
 - 배포 주소: https://choi-bujang-secret-vault-opal.vercel.app
-- 현재 단계: 4단계(로그인해도 내 자료만) 저장점
+- 현재 단계: 5단계(자료 요청을 서버 한곳으로) 저장점
 
 ## 지금 작동하는 기능
 
 1. 화면(`/`)에서 Supabase Auth 이메일·비밀번호로 로그인·로그아웃합니다. 로그인 실패 이유를 화면에 보여 줍니다. 공개용 Project URL과 publishable key만 화면 코드에 있습니다.
 2. 자료 API `/api/notes`는 요청의 로그인 토큰을 시작 틀의 `src/verify-login.mjs`로 검사합니다. 토큰이 없거나 검사에 실패하면 자료 없이 401로 거부합니다. 브라우저가 보낸 userId·role·owner_id는 믿지 않습니다.
 3. 로그인한 사용자는 **자기** 가상 메모만 목록으로 보고, 읽기·추가·수정·삭제할 수 있습니다. 서버는 검증된 사용자 ID와 DB의 `owner_id`를 비교합니다. 남의 메모는 ID를 알아도 404로 거부하고, 수정으로 주인을 바꾸려 하면 403으로 거부합니다. 추가할 때는 본문의 `owner_id`를 무시하고 검증된 ID로 저장합니다.
-5. DB에서도 `vault_notes`는 RLS가 켜져 있고, `anon`에는 권한이 없으며 `authenticated`에는 SELECT·INSERT·UPDATE·DELETE만 있습니다. 네 가지 모두 `auth.uid() = owner_id`인 행에만 허용됩니다(읽기·삭제 USING, 추가 WITH CHECK, 수정 USING+WITH CHECK).
+5. 메모 자료 요청은 서버 함수 `/api/notes` 한곳으로만 갑니다. 브라우저는 Supabase에 로그인(Auth)만 직접 요청합니다. DB의 `vault_notes`는 `PUBLIC`·`anon`·`authenticated` 직접 권한이 모두 회수되어, 공개 키나 로그인 토큰으로 원본 자료 API(`originalApiUrl`)를 직접 불러도 거부됩니다. 서버 함수만 서버 전용 키(service_role)로 접근합니다. RLS와 4단계 정책 4개(`auth.uid() = owner_id`)는 예비 방어로 남겨 둡니다.
 4. 정적 `/data.json`은 만들지 않습니다(404). 빌드는 `public/aleph.json`에 배포 저장소·커밋·주소·단계를 기록합니다.
 
 | 경로 | 동작 |
@@ -23,7 +23,7 @@
 
 ## 다시 실행하는 방법
 
-1. 학습용 Supabase SQL Editor에서 2단계 이전 SQL과 4단계 B 시험 메모 SQL(둘 다 메모 문장이 있어 저장소 밖 보관), `supabase/step3_notes_crud.sql`, `supabase/step4_rls_policies.sql`을 차례로 실행합니다. 이메일 자리는 실행할 때만 바꾸고 파일에는 저장하지 않습니다. A·B 시험 계정은 Authentication → Users에서 만듭니다.
+1. 학습용 Supabase SQL Editor에서 2단계 이전 SQL과 4단계 B 시험 메모 SQL(둘 다 메모 문장이 있어 저장소 밖 보관), `supabase/step3_notes_crud.sql`, `supabase/step4_rls_policies.sql`, `supabase/step5_revoke_direct_access.sql`을 차례로 실행합니다. 이메일 자리는 실행할 때만 바꾸고 파일에는 저장하지 않습니다. A·B 시험 계정은 Authentication → Users에서 만듭니다.
 2. Vercel 프로젝트 **Settings → Environment Variables**(Production)에 `SUPABASE_URL`과 서버 전용 `SUPABASE_SECRET_KEY`를 학생이 직접 넣습니다. 키 값은 코드·Git·채팅에 적지 않습니다.
 3. main에 푸시하거나 Deployments에서 Redeploy 합니다.
 4. 로컬 확인: `npm run build -- --local`, `npm run test:r5`. 제출 묶음: `bundle-notes.json`을 만든 뒤 `npm run bundle`(결과 `artifacts/submission.json`, 둘 다 커밋하지 않음).
@@ -39,6 +39,7 @@
 - 2단계: 메모를 Supabase `vault_notes`(RLS 켬, anon·authenticated 권한 회수)로 옮기고 서버 함수로 읽음. 정적 `/data.json` 제거.
 - 3단계: Supabase Auth 로그인·로그아웃, `verify-login.mjs` 토큰 검사, 로그인 사용자 메모 CRUD, `identityProvider`·`allowedRoutes` 기록.
 - 4단계: 메모 API가 검증된 사용자 ID와 `owner_id`를 비교(남의 메모 404, 주인 변경 403), A 기존 메모·B 시험 메모 소유자 지정, DB RLS 정책 4개와 최소 권한(anon 없음, authenticated는 SELECT·INSERT·UPDATE·DELETE).
+- 5단계: 브라우저의 메모 자료 요청이 모두 서버 함수 경유임을 확인(직접 호출 없음), `vault_notes`의 PUBLIC·anon·authenticated 직접 권한 회수, `originalApiUrl` 기록.
 
 ## 다음 단계의 코딩 도구에 전달할 규칙
 
