@@ -6,16 +6,17 @@ import { createLoginVerifier } from '../src/verify-login.mjs';
 const require = createRequire(import.meta.url);
 const config = require('../aleph.config.json');
 
-// 3단계: 로그인한 사용자의 가상 메모 목록·추가·조회·수정·삭제.
+// 4단계: 로그인한 사용자가 '자기' 가상 메모만 목록·추가·조회·수정·삭제합니다.
 //   GET    /api/notes        로그인 사용자의 메모 배열 [{id,title,body}]
 //   POST   /api/notes        {id?,title,body} → 201 {id}  (id 없으면 서버가 UUID 생성)
-//   GET    /api/notes/:id    {id,title,body} 또는 404
-//   PUT    /api/notes/:id    {title,body} → {id,title,body} 또는 404
-//   DELETE /api/notes/:id    204 또는 404
+//   GET    /api/notes/:id    {id,title,body} 또는 404 (본인 메모가 아니면 404)
+//   PUT    /api/notes/:id    {title,body} → {id,title,body} 또는 404 (본인 메모가 아니면 404)
+//   DELETE /api/notes/:id    204 또는 404 (본인 메모가 아니면 404)
 // 로그인 여부와 사용자 ID는 시작 틀의 src/verify-login.mjs가 검증한 토큰에서만 얻습니다.
-// 요청 본문·주소에 들어온 userId·role·owner_id는 읽지 않습니다.
+// 요청 본문·주소에 들어온 userId·role·owner_id는 믿지 않습니다. 소유자 비교는 검증된 ID와 DB의 owner_id로만 합니다.
+// 수정 본문에 다른 소유자를 넣으면(소유자 변경 시도) 403으로 거부합니다.
 // SUPABASE_SECRET_KEY는 서버 전용이며 브라우저 파일·응답·로그에 넣지 않습니다.
-// 알려진 허점(4단계에서 고침): 한 건 조회·수정·삭제는 아직 소유자를 검사하지 않습니다.
+// 남은 일: DB 권한(GRANT·RLS)도 본인 행만 허용하도록 바꾸는 것은 다음 요청에서 합니다.
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 const TITLE_MAX = 120;
@@ -135,31 +136,39 @@ export default async function handler(request, response) {
     return response.status(201).json({ id: newId });
   }
 
-  // 한 건 조회 (소유자 검사 없음 — 4단계에서 고칠 허점)
+  // 한 건 조회: 본인 메모만 (남의 메모는 존재 여부도 알리지 않고 404)
   if (method === 'GET') {
-    const { data, error } = await db.select(COLUMNS).eq('note_id', id).maybeSingle();
+    const { data, error } = await db.select(COLUMNS)
+      .eq('note_id', id).eq('owner_id', userId).maybeSingle();
     if (error) return dbError(response, error, '조회');
     if (!data) return fail(response, 404, 'NOT_FOUND');
     return response.status(200).json(toNote(data));
   }
 
-  // 수정 (소유자 검사 없음 — 4단계에서 고칠 허점)
+  // 수정: 기존 행의 주인이 본인이어야 하고(조건), 새 행의 주인도 본인으로 고정합니다.
   if (method === 'PUT') {
     const input = readJson(request);
     if (!input) return fail(response, 400, 'INVALID_JSON');
+    if (Object.hasOwn(input, 'owner_id') && input.owner_id !== userId) {
+      return fail(response, 403, 'OWNER_CHANGE_FORBIDDEN');
+    }
     if (!validText(input.title, TITLE_MAX) || !validText(input.body, BODY_MAX)) {
       return fail(response, 400, 'INVALID_NOTE');
     }
     const { data, error } = await db
-      .update({ title: input.title, content: input.body, updated_at: new Date().toISOString() })
-      .eq('note_id', id).select(COLUMNS).maybeSingle();
+      .update({ owner_id: userId, title: input.title, content: input.body,
+        updated_at: new Date().toISOString() })
+      .eq('note_id', id).eq('owner_id', userId)
+      .select(`${COLUMNS}, owner_id`).maybeSingle();
     if (error) return dbError(response, error, '수정');
     if (!data) return fail(response, 404, 'NOT_FOUND');
+    if (data.owner_id !== userId) return dbError(response, { code: 'OWNER_MISMATCH' }, '수정 확인');
     return response.status(200).json(toNote(data));
   }
 
-  // 삭제 (소유자 검사 없음 — 4단계에서 고칠 허점)
-  const { data, error } = await db.delete().eq('note_id', id).select('note_id');
+  // 삭제: 본인 메모만
+  const { data, error } = await db.delete()
+    .eq('note_id', id).eq('owner_id', userId).select('note_id');
   if (error) return dbError(response, error, '삭제');
   if (!data?.length) return fail(response, 404, 'NOT_FOUND');
   return response.status(204).end();
