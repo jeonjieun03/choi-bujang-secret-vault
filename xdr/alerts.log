@@ -1,0 +1,19 @@
+2026-09-27T00:12:01.000Z | block | bf-01 | 203.0.113.10 | user01 | confidence 0.93 | same-source-failure-burst (T1110.001): 실패 48건, 2분
+2026-09-27T00:12:40.000Z | block | bf-02 | 203.0.113.10 | user01 | confidence 0.96 | password-spraying (T1110.003): 계정 8개, 같은 비밀번호
+2026-09-27T00:14:02.000Z | block | bf-03 | 198.51.100.20 | user02 | confidence 0.93 | same-source-failure-burst (T1110.001): 실패 36건, 3분
+2026-09-27T00:20:11.000Z | block | bf-04 | 192.0.2.30 | user02 | confidence 0.97 | same-source-failure-burst (T1110.001): 실패 52건, 2분, 성공 없음
+2026-09-27T00:21:00.000Z | block | bf-05 | 203.0.113.21 | user03 | confidence 0.91 | password-spraying (T1110.003): 계정 20개
+2026-09-27T02:02:15.000Z | block | bf-06 | 198.51.100.44 | user03 | confidence 0.93 | same-source-failure-burst (T1110.001): 실패 61건, 1분
+2026-09-27T02:05:40.000Z | block | bf-07 | 203.0.113.15 | user04 | confidence 0.88 | same-source-failure-burst (T1110.001): 실패 40건
+2026-09-27T04:10:02.000Z | block | bf-08 | 192.0.2.18 | user05 | confidence 0.88 | same-source-failure-burst (T1110.001): 실패 70건
+2026-09-27T05:22:18.000Z | block | bf-09 | 198.51.100.8 | user06 | confidence 0.96 | password-spraying (T1110.003): 계정 15개, 같은 비밀번호
+2026-09-27T06:40:01.000Z | block | bf-10 | 203.0.113.40 | user06 | confidence 0.92 | same-source-failure-burst (T1110.001): 실패 90건, 성공 없음
+2026-09-27T00:30:12.000Z | alert | bf-11 | 192.0.2.50 | user01 | confidence 0.50 | same-source-failure-burst (T1110.001): 실패 4건, 뒤에 성공
+2026-09-27T00:41:05.000Z | alert | bf-12 | 198.51.100.50 | user02 | confidence 0.54 | same-source-failure-burst (T1110.001): 실패 6건, 5분, 뒤에 성공
+2026-09-27T01:02:20.000Z | alert | bf-13 | 203.0.113.50 | user03 | confidence 0.50 | same-source-failure-burst (T1110.001): 실패 3건
+2026-09-27T01:15:08.000Z | alert | bf-14 | 192.0.2.51 | user04 | confidence 0.54 | same-source-failure-burst (T1110.001): 실패 5건, 10분
+2026-09-27T01:28:44.000Z | alert | bf-15 | 198.51.100.51 | user05 | confidence 0.55 | password-spraying (T1110.003): 계정 2개
+2026-09-27T02:18:03.000Z | alert | bf-16 | 203.0.113.51 | user05 | confidence 0.50 | same-source-failure-burst (T1110.001): 실패 3건
+2026-09-27T04:02:16.000Z | alert | bf-17 | 192.0.2.52 | user06 | confidence 0.50 | same-source-failure-burst (T1110.001): 실패 4건, 뒤에 성공
+2026-09-27T05:05:27.000Z | alert | bf-18 | 198.51.100.52 | user07 | confidence 0.60 | same-source-failure-burst (T1110.001): 실패 8건
+2026-09-27T06:12:09.000Z | alert | bf-19 | 203.0.113.52 | user08 | confidence 0.50 | same-source-failure-burst (T1110.001): 실패 3건
