@@ -1,0 +1,31 @@
+{
+  "schema": "aleph.xdr.patterns.v1",
+  "moduleKey": "brute-force",
+  "technique": "MITRE ATT&CK T1110 Brute Force (무차별 대입)",
+  "patterns": [
+    {
+      "name": "same-source-failure-burst",
+      "title": "같은 주소의 짧은 시간 로그인 실패 연속",
+      "mitre": "T1110.001",
+      "condition": {
+        "summary": "같은 출발 주소에서 몇 분 안에 로그인 실패가 연달아 쌓이고 그 사이 성공이 없다",
+        "strong": "실패 20건 이상이 5분 이내에 쌓이고 성공이 없다",
+        "weak": "실패 5건 이상이 쌓였지만 건수가 적거나 중간에 성공이 섞여 있다",
+        "fields": ["data.srcip", "data.srcuser", "data.count", "rule.level", "rule.description"]
+      },
+      "evidence": "MITRE ATT&CK T1110.001(Password Guessing): 공격자가 한 계정에 비밀번호를 반복해 넣어 맞히려 하며, 짧은 시간의 로그인 실패 급증이 대표 탐지 신호다. https://attack.mitre.org/techniques/T1110/001/"
+    },
+    {
+      "name": "password-spraying",
+      "title": "여러 계정에 같은 비밀번호 대입",
+      "mitre": "T1110.003",
+      "condition": {
+        "summary": "같은 출발 주소가 서로 다른 여러 계정에 같은 비밀번호로 로그인 실패를 낸다",
+        "strong": "서로 다른 계정 5개 이상에 같은 비밀번호 실패가 이어진다",
+        "weak": "같은 주소에서 계정 2~4개에 실패가 나뉘어 있다",
+        "fields": ["data.srcip", "data.accounts", "data.count", "rule.level", "rule.description"]
+      },
+      "evidence": "MITRE ATT&CK T1110.003(Password Spraying): 계정 잠금을 피하려고 자주 쓰는 비밀번호 하나를 여러 계정에 대입하며, 한 출발지의 여러 계정 로그인 실패가 탐지 신호다. https://attack.mitre.org/techniques/T1110/003/"
+    }
+  ]
+}
