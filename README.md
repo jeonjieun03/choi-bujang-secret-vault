@@ -41,6 +41,15 @@
 - 4단계: 메모 API가 검증된 사용자 ID와 `owner_id`를 비교(남의 메모 404, 주인 변경 403), A 기존 메모·B 시험 메모 소유자 지정, DB RLS 정책 4개와 최소 권한(anon 없음, authenticated는 SELECT·INSERT·UPDATE·DELETE).
 - 5단계: 브라우저의 메모 자료 요청이 모두 서버 함수 경유임을 확인(직접 호출 없음), `vault_notes`의 PUBLIC·anon·authenticated 직접 권한 회수, `originalApiUrl` 기록.
 
+## 보너스 xdr-01: 무차별 로그인 공격 탐지 (`xdr/brute-force/`)
+
+- `read-alerts.mjs`: 확인용. `xdr/fixtures/brute-force.json` 경보에서 시각·출발 주소·계정·규칙 수준·설명만 뽑고 비밀값처럼 보이는 값은 가립니다.
+- `patterns.json`: MITRE ATT&CK T1110.001(같은 주소의 짧은 시간 로그인 실패 연속), T1110.003(여러 계정에 같은 비밀번호) 두 패턴과 근거.
+- `decide.mjs`: 패턴을 상수로 담고 `decide(alert)`가 확신도 0.85 이상 `block`, 0.5 이상 `alert`, 그 아래 `record`를 돌려줍니다. import·파일·네트워크를 쓰지 않습니다.
+- `respond.mjs`: `block`만 출발 주소 거부 규칙(만료 60분, 근거 경보 번호)으로 `deny-rules.json`에 만들고, `alert`·`block`은 `xdr/alerts.log`에 한 줄씩 쌓습니다. 계정은 막지 않고, 정상 이벤트가 있는 주소는 규칙에서 뺍니다. 판정기 앞 확인 단계 `checkDeny()`를 제공하며 `src/decider.mjs` 기존 규칙은 바꾸지 않습니다(현재 판정기 계약에는 출발 주소 항목이 없음).
+- 다시 실행: `npm run xdr:run -- brute-force`(결과 `result.json`), `node xdr/brute-force/respond.mjs`(규칙·알림 갱신과 재생 확인).
+- 시험 경보 결과: block 10 · alert 9 · record 9, 정상 이벤트 block 없음.
+
 ## 다음 단계의 코딩 도구에 전달할 규칙
 
 [AGENTS.md](AGENTS.md)를 먼저 읽히고 한 번에 한 제작 단위만 요청하세요. 2단계부터는 자료 보호를 구현할 때 `public/data.json`을 복사하는 1단계 빌드 흐름도 함께 바꿔야 합니다. 3단계 이후의 로그인, 허용 경로, 5단계의 원본 API 주소, 6단계 이후 정책 규칙은 해당 단계 원고와 계약에 맞춰 추가합니다. 비밀번호·토큰·서버 전용 키·실제 학생 기록을 코드, Git, 제출 묶음에 넣지 않습니다.
