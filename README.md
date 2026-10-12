@@ -50,6 +50,15 @@
 - 다시 실행: `npm run xdr:run -- brute-force`(결과 `result.json`), `node xdr/brute-force/respond.mjs`(규칙·알림 갱신과 재생 확인).
 - 시험 경보 결과: block 10 · alert 9 · record 9, 정상 이벤트 block 없음.
 
+## 보너스 xdr-02: 웹 주입 공격 탐지 (`xdr/web-injection/`)
+
+- `read-alerts.mjs`: 확인용. `xdr/fixtures/web-injection.json` 경보에서 시각·출발 주소·계정·규칙 수준·설명만 뽑고 비밀값처럼 보이는 값은 가립니다.
+- `patterns.json`: MITRE ATT&CK T1190 근거의 네 패턴. SQL 구문(CWE-89), 스크립트 태그(CWE-79), 경로 이탈 `../` 반복(CWE-22), 명령 구분자(CWE-78)입니다.
+- `decide.mjs`: 패턴을 상수로 담고 `decide(alert)`가 같은 주소에서 5번 이상 반복된 주입 표식은 `block`, 한 번뿐인 의심 표기나 수업명 같은 평범한 단어는 `alert`, 주입 신호가 없으면 `record`를 돌려줍니다. import·파일·네트워크를 쓰지 않습니다.
+- `respond.mjs`: `block`만 출발 주소 거부 규칙(만료 60분, 근거 경보 번호)으로 `deny-rules.json`에 만들고, `alert`·`block`은 `xdr/alerts.log`에 한 줄씩 쌓습니다. 계정은 막지 않고, 정상 이벤트가 있는 주소는 규칙에서 뺍니다. 판정기 앞 확인 단계 `checkDeny()`를 제공하며 `src/decider.mjs` 기존 규칙은 바꾸지 않습니다.
+- 다시 실행: `npm run xdr:run -- web-injection`(결과 `result.json`), `node xdr/web-injection/respond.mjs`(규칙·알림 갱신과 재생 확인).
+- 시험 경보 결과: block 8 · alert 9 · record 9, 정상 이벤트 block 없음.
+
 ## 다음 단계의 코딩 도구에 전달할 규칙
 
 [AGENTS.md](AGENTS.md)를 먼저 읽히고 한 번에 한 제작 단위만 요청하세요. 2단계부터는 자료 보호를 구현할 때 `public/data.json`을 복사하는 1단계 빌드 흐름도 함께 바꿔야 합니다. 3단계 이후의 로그인, 허용 경로, 5단계의 원본 API 주소, 6단계 이후 정책 규칙은 해당 단계 원고와 계약에 맞춰 추가합니다. 비밀번호·토큰·서버 전용 키·실제 학생 기록을 코드, Git, 제출 묶음에 넣지 않습니다.
