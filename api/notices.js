@@ -96,9 +96,13 @@ export default async function handler(request, response) {
   const client = createClient(url, secretKey, {
     auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
   });
-  // 11단계: 승인된 기기 세션이 있을 때만 진행합니다.
-  const deviceCheck = await requireApprovedDevice({ client, request, ownerId: ownerKeyOf(identity) });
-  if (!deviceCheck.ok) return fail(response, deviceCheck.status, deviceCheck.error);
+  // 11단계: 학생 로그인은 서버가 승인한 기기 세션이 있을 때만 자료를 다룹니다.
+  //   심판 토큰(kind: 'judge')의 기기는 ALEPH SDP 엔진과 판정기(deviceRegistered·device_registered 규칙)가 확인하므로
+  //   브라우저 기기 세션 검사를 건너뜁니다. 주인 검사(A·B 구별)는 그대로 합니다.
+  if (identity.kind === 'student') {
+    const deviceCheck = await requireApprovedDevice({ client, request, ownerId: ownerKeyOf(identity) });
+    if (!deviceCheck.ok) return fail(response, deviceCheck.status, deviceCheck.error);
+  }
   const db = client.from('vault_notices');
 
   // 공지 읽기·수정 공통: 저장된 강사 명단과 검증된 사용자 ID를 대조합니다.

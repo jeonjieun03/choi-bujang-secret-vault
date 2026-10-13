@@ -126,9 +126,13 @@ export default async function handler(request, response) {
   const supabase = createClient(url, secretKey, {
     auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
   });
-  // 11단계: 서버가 등록 기기로 확인하고 판정기가 허용한 기기 세션이 있을 때만 자료를 다룹니다.
-  const deviceCheck = await requireApprovedDevice({ client: supabase, request, ownerId: userId });
-  if (!deviceCheck.ok) return fail(response, deviceCheck.status, deviceCheck.error);
+  // 11단계: 학생 로그인은 서버가 승인한 기기 세션이 있을 때만 자료를 다룹니다.
+  //   심판 토큰(kind: 'judge')의 기기는 ALEPH SDP 엔진과 판정기(deviceRegistered·device_registered 규칙)가 확인하므로
+  //   브라우저 기기 세션 검사를 건너뜁니다. 주인 검사(A·B 구별)는 그대로 합니다.
+  if (identity.kind === 'student') {
+    const deviceCheck = await requireApprovedDevice({ client: supabase, request, ownerId: userId });
+    if (!deviceCheck.ok) return fail(response, deviceCheck.status, deviceCheck.error);
+  }
   const db = supabase.from('vault_notes');
 
   // 목록: 로그인 사용자의 메모만
