@@ -143,74 +143,33 @@ export default async function handler(request, response) {
     return fail(response, 409, 'BACKUP_UNVERIFIED');
   }
 
-  // 3) 지금 상태: 같은 ID의 메모가 있으면 주인이 같아야 함
-  const notes = client.from('vault_notes');
-  const { data: current, error: currentError } = await notes.select('note_id, owner_id, title, content')
-    .eq('note_id', id).maybeSingle();
-  if (currentError) {
-    console.error('restore: 현재 메모 조회 실패', currentError.code ?? 'unknown');
-    return fail(response, 502, 'RESTORE_UNAVAILABLE');
+  // 3) 나머지는 DB 함수 하나가 한 번에 합니다(supabase/step10_restore_function.sql):
+  //    사본 다시 읽기 → 해시 재계산·대조 → 봉인 기록 확인 → (미리 보기면 여기서 끝) → 한 건 복원
+  //    → 다시 읽어 ID·소유자·해시 대조, 다르면 함수 안의 변경 전체 취소. 멈춤·미리 보기·복원은 DB 감사 기록에 남습니다.
+  const { data: result, error: rpcError } = await client.rpc('vault_restore_note', {
+    p_note_id: id, p_owner_id: ownerId, p_preview: previewOnly, p_expect_sha256: expected ?? backupSha,
+  });
+  if (rpcError) {
+    const failed = String(rpcError.message ?? '').includes('restore_verify_failed');
+    if (failed) await audit({ result: 'verify_failed_rolled_back', backup_sha256: backupSha });
+    console.error(`restore: ${failed ? 'verify_failed rolled_back=true' : 'rpc 실패'}`, rpcError.code ?? 'unknown');
+    return fail(response, 502, failed ? 'RESTORE_VERIFY_FAILED' : 'RESTORE_UNAVAILABLE');
   }
-  if (current && current.owner_id !== ownerId) {
-    await audit({ result: 'owner_mismatch', backup_sha256: backupSha });
-    return fail(response, 404, 'NOT_FOUND');
+  if (!result || typeof result !== 'object') return fail(response, 502, 'RESTORE_UNAVAILABLE');
+  if (result.status === 'stopped') {
+    console.info(`restore: stop reason=${result.reason}`);
+    if (result.reason === 'backup_missing' || result.reason === 'not_found') return fail(response, 404, 'NOT_FOUND');
+    if (result.reason === 'backup_changed') return fail(response, 409, 'BACKUP_CHANGED_SINCE_PREVIEW');
+    return fail(response, 409, 'BACKUP_UNVERIFIED');
   }
-  const previous = !current ? 'deleted'
-    : noteContentSha256(current.title, current.content) === backupSha ? 'unchanged' : 'tampered';
-  // 쓰기 전에 정한 복원 계획: 사본 버전과 바뀔 항목(본문 값은 응답·기록에 넣지 않고 항목 이름만)
-  const backupVersion = backup.backed_up_at ?? null;
-  const changes = !current ? ['note'] : [
-    ...(current.title !== backup.title ? ['title'] : []), ...(current.content !== backup.content ? ['body'] : [])];
-  const plan = { previous, backupVersion, changes, backupVerified: true, backupSha256: backupSha };
-  // 되돌리기용: 복원 전 상태를 따로 복사해 둠
-  const before = current ? Object.freeze({ title: String(current.title), content: String(current.content) }) : null;
+  const plan = { previous: result.previous, backupVersion: result.backupVersion ?? null, changes: result.changes ?? [],
+    backupVerified: result.backupVerified === true, backupSha256: result.backupSha256 };
+  if (result.status === 'preview') return response.status(200).json({ id, preview: true, restored: null, plan });
+  if (result.status !== 'restored') return fail(response, 502, 'RESTORE_UNAVAILABLE');
 
-  // 3-1) 미리 보기: 검증된 사본의 버전과 바뀔 항목만 보여 주고 아무것도 쓰지 않음
-  if (previewOnly) {
-    await audit({ result: 'previewed', previous_state: previous, backup_sha256: backupSha });
-    return response.status(200).json({ id, preview: true, restored: null, plan });
-  }
-  // 3-2) 미리 본 사본과 지금 검증한 사본이 다르면 멈춤
-  if (expected !== undefined && expected !== backupSha) {
-    await audit({ result: 'expectation_mismatch', previous_state: previous, backup_sha256: backupSha });
-    return fail(response, 409, 'BACKUP_CHANGED_SINCE_PREVIEW');
-  }
-
-  // 4) 지정한 한 건만 복원
-  if (previous === 'tampered') {
-    const { error } = await notes.update({ title: backup.title, content: backup.content, updated_at: new Date().toISOString() })
-      .eq('note_id', id).eq('owner_id', ownerId);
-    if (error) { console.error('restore: 수정 복원 실패', error.code ?? 'unknown'); return fail(response, 502, 'RESTORE_UNAVAILABLE'); }
-  } else if (previous === 'deleted') {
-    const { error } = await notes.insert({ note_id: id, owner_id: ownerId, title: backup.title, content: backup.content });
-    if (error) { console.error('restore: 삭제 복원 실패', error.code ?? 'unknown'); return fail(response, 502, 'RESTORE_UNAVAILABLE'); }
-  }
-
-  // 5) 다시 읽어 ID·소유자·내용 해시 대조
-  const { data: after, error: afterError } = await notes.select('note_id, owner_id, title, content')
+  const { data: after } = await client.from('vault_notes').select('note_id, title, content')
     .eq('note_id', id).eq('owner_id', ownerId).maybeSingle();
-  const restoredSha = after ? noteContentSha256(after.title, after.content) : null;
-  const matches = { id: after?.note_id === backup.note_id, owner: after?.owner_id === backup.owner_id,
-    contentSha256: restoredSha === backup.content_sha256 };
-  const ok = !afterError && Boolean(after) && matches.id && matches.owner && matches.contentSha256;
-  if (!ok) {
-    // 검증 실패한 복원은 남기지 않음: 쓴 내용을 복원 전 상태로 되돌림
-    let rolledBack = previous === 'unchanged';
-    if (previous === 'tampered') {
-      const { error } = await notes.update({ title: before.title, content: before.content, updated_at: new Date().toISOString() })
-        .eq('note_id', id).eq('owner_id', ownerId);
-      rolledBack = !error;
-    } else if (previous === 'deleted') {
-      const { error } = await notes.delete().eq('note_id', id).eq('owner_id', ownerId);
-      rolledBack = !error;
-    }
-    await audit({ result: rolledBack ? 'verify_failed_rolled_back' : 'verify_failed_rollback_failed', previous_state: previous,
-      backup_sha256: backupSha, restored_sha256: restoredSha });
-    console.error(`restore: verify_failed rolled_back=${rolledBack} previous=${previous}`);
-    return fail(response, 502, 'RESTORE_VERIFY_FAILED');
-  }
-  await audit({ result: 'restored', previous_state: previous, backup_sha256: backupSha, restored_sha256: restoredSha });
-  console.info(`restore: restored previous=${previous}`);
-  return response.status(200).json({ id: after.note_id, title: after.title, body: after.content,
-    restored: { previous, backupVersion, changes, backupVerified: true, sha256: restoredSha, matches } });
+  console.info(`restore: restored previous=${result.previous}`);
+  return response.status(200).json({ id, title: after?.title ?? backup.title, body: after?.content ?? backup.content,
+    restored: { ...plan, sha256: result.restoredSha256, matches: result.matches } });
 }
