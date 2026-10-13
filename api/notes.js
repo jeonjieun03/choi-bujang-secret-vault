@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { createClient } from '@supabase/supabase-js';
 import { createLoginVerifier } from '../src/verify-login.mjs';
+import { resourceId } from '../src/resources.mjs';
 
 const require = createRequire(import.meta.url);
 const config = require('../aleph.config.json');
@@ -104,6 +105,8 @@ export default async function handler(request, response) {
   const userId = identity.userId; // 서버가 검증한 토큰의 사용자 ID만 사용
 
   if (id !== null && !UUID.test(id)) return fail(response, 400, 'INVALID_ID');
+  // 8단계: 이 요청이 다루는 자원 ID(메모 목록 notes / 메모 한 건 note:<id>)를 응답 머리에 표시합니다.
+  response.setHeader('X-Resource-Id', resourceId('note', id));
 
   const db = createClient(url, secretKey, {
     auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
@@ -133,6 +136,7 @@ export default async function handler(request, response) {
     });
     if (error?.code === '23505') return fail(response, 409, 'ID_ALREADY_EXISTS');
     if (error) return dbError(response, error, '추가');
+    response.setHeader('X-Resource-Id', resourceId('note', newId));
     return response.status(201).json({ id: newId });
   }
 

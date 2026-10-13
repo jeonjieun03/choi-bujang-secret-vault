@@ -1,0 +1,93 @@
+import { createRequire } from 'node:module';
+import { createClient } from '@supabase/supabase-js';
+import { createLoginVerifier } from '../src/verify-login.mjs';
+import { resourceId } from '../src/resources.mjs';
+
+const require = createRequire(import.meta.url);
+const config = require('../aleph.config.json');
+
+// 8단계: 강사 공지(구역 instructor_notices). 메모(own_notes)와 다른 자원 ID를 씁니다.
+//   GET /api/notices        공지 목록 [{id,title,body}]   자원 ID notices
+//   GET /api/notices/:id    공지 한 건 {id,title,body}    자원 ID notice:<id>
+// 로그인한 사람은 공지를 읽을 수 있습니다. 공지 수정 권한(강사 확인)은 다음 요청에서 추가합니다.
+// SUPABASE_SECRET_KEY는 서버 전용이며 브라우저 파일·응답·로그에 넣지 않습니다.
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
+const COLUMNS = 'notice_id, title, content';
+
+let verifier = null;
+function getVerifier(secretKey) {
+  verifier ??= createLoginVerifier({ config, supabaseSecretKey: secretKey });
+  return verifier;
+}
+
+const toNotice = row => ({ id: row.notice_id, title: row.title, body: row.content });
+const fail = (response, status, error) => response.status(status).json({ error });
+
+function noticeIdFrom(request) {
+  const fromQuery = request.query?.id;
+  if (typeof fromQuery === 'string' && fromQuery) return fromQuery;
+  const path = (request.url ?? '').split('?')[0];
+  const match = /^\/api\/notices\/([^/]+)\/?$/u.exec(path);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+export default async function handler(request, response) {
+  response.setHeader('Cache-Control', 'no-store');
+
+  const id = noticeIdFrom(request);
+  const method = request.method ?? 'GET';
+  if (method !== 'GET') {
+    response.setHeader('Allow', 'GET');
+    return fail(response, 405, 'METHOD_NOT_ALLOWED');
+  }
+
+  const url = process.env.SUPABASE_URL;
+  const secretKey = process.env.SUPABASE_SECRET_KEY;
+  if (!url || !secretKey) {
+    console.error('notices: 서버 환경변수가 설정되지 않았습니다.');
+    return fail(response, 500, 'SERVER_NOT_CONFIGURED');
+  }
+
+  let verify;
+  try {
+    verify = getVerifier(secretKey);
+  } catch (error) {
+    console.error('notices: 로그인 검사 설정이 올바르지 않습니다.', error?.message ?? 'unknown');
+    return fail(response, 500, 'LOGIN_NOT_CONFIGURED');
+  }
+  const authorization = request.headers?.authorization;
+  if (!authorization) {
+    response.setHeader('WWW-Authenticate', 'Bearer');
+    return fail(response, 401, 'LOGIN_REQUIRED');
+  }
+  const identity = await verify(authorization);
+  if (!identity?.userId) {
+    response.setHeader('WWW-Authenticate', 'Bearer error="invalid_token"');
+    return fail(response, 401, 'INVALID_LOGIN');
+  }
+
+  if (id !== null && !UUID.test(id)) return fail(response, 400, 'INVALID_ID');
+  response.setHeader('X-Resource-Id', resourceId('notice', id));
+
+  const db = createClient(url, secretKey, {
+    auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
+  }).from('vault_notices');
+
+  if (id === null) {
+    const { data, error } = await db.select(COLUMNS).order('created_at', { ascending: false });
+    if (error) {
+      console.error('notices: 목록 조회 실패', error.code ?? 'unknown');
+      return fail(response, 502, 'NOTICES_UNAVAILABLE');
+    }
+    return response.status(200).json((data ?? []).map(toNotice));
+  }
+
+  const { data, error } = await db.select(COLUMNS).eq('notice_id', id).maybeSingle();
+  if (error) {
+    console.error('notices: 조회 실패', error.code ?? 'unknown');
+    return fail(response, 502, 'NOTICES_UNAVAILABLE');
+  }
+  if (!data) return fail(response, 404, 'NOT_FOUND');
+  return response.status(200).json(toNotice(data));
+}
