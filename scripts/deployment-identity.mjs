@@ -36,6 +36,15 @@ export function deploymentIdentity(env, config) {
       || !/^(GET|POST|PUT|PATCH|DELETE) \/[A-Za-z0-9/:._-]{0,200}$/u.test(route))) {
     throw new Error('aleph.config.json의 allowedRoutes 형식을 확인하세요("메서드 /경로").');
   }
+  // 10단계부터: 제출한 복구 경로(예: "POST /api/notes/:id/restore")도 배포 정보에 기록합니다.
+  let restoreRoute;
+  if (config.restoreRoute != null) {
+    if (typeof config.restoreRoute !== 'string'
+        || !/^(GET|POST|PUT|PATCH|DELETE) \/[A-Za-z0-9/:._-]{0,200}$/u.test(config.restoreRoute)) {
+      throw new Error('aleph.config.json의 restoreRoute 형식을 확인하세요("메서드 /경로").');
+    }
+    restoreRoute = config.restoreRoute;
+  }
   return {
     schema: 'aleph.defense.deployment.v1',
     step: config.step,
@@ -46,5 +55,6 @@ export function deploymentIdentity(env, config) {
     sampleMarker: config.sampleMarker,
     ...(originalApiUrl ? { originalApiUrl } : {}),
     ...(allowedRoutes.length ? { allowedRoutes } : {}),
+    ...(restoreRoute ? { restoreRoute } : {}),
   };
 }
