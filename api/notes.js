@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 import { createLoginVerifier } from '../src/verify-login.mjs';
 import { resourceId } from '../src/resources.mjs';
 import { ownerKeyOf } from '../src/owner-key.mjs';
+import { logAuthReject } from '../src/auth-log.mjs';
 
 const require = createRequire(import.meta.url);
 const config = require('../aleph.config.json');
@@ -102,11 +103,13 @@ export default async function handler(request, response) {
 
   const authorization = request.headers?.authorization;
   if (!authorization) {
+    logAuthReject('notes', authorization);
     response.setHeader('WWW-Authenticate', 'Bearer');
     return fail(response, 401, 'LOGIN_REQUIRED');
   }
   const identity = await verify(authorization);
   if (!identity?.userId) {
+    logAuthReject('notes', authorization);
     response.setHeader('WWW-Authenticate', 'Bearer error="invalid_token"');
     return fail(response, 401, 'INVALID_LOGIN');
   }
