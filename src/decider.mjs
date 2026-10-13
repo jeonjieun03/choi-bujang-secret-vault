@@ -33,7 +33,11 @@ const ZONE_ROUTES = Object.freeze({
 const FUNCTION_WORDS = new Set(['export', 'import', 'download', 'all', 'bulk', 'admin', 'search', 'list', 'new', 'edit', 'delete']);
 
 // 요청이 어느 구역의 어떤 경로인지 정확히 맞춰 봅니다. 맞지 않으면 null.
+// 내 자료실 서비스. 엔진이 확인한 service 가 이것이 아니면(다른 구역·다른 서비스) 경로 모양이 같아도 거부합니다.
+const VAULT_SERVICE = 'notes';
+
 export function matchZoneRoute(request) {
+  if (request?.service !== VAULT_SERVICE) return null;
   const route = typeof request?.route === 'string' ? request.route : '';
   const entry = Object.hasOwn(ZONE_ROUTES, route) ? ZONE_ROUTES[route] : null;
   if (!entry) return null;
