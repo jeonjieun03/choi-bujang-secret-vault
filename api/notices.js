@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 import { createClient } from '@supabase/supabase-js';
 import { createLoginVerifier } from '../src/verify-login.mjs';
 import { resourceId } from '../src/resources.mjs';
+import { ownerKeyOf } from '../src/owner-key.mjs';
 
 const require = createRequire(import.meta.url);
 const config = require('../aleph.config.json');
@@ -96,7 +97,7 @@ export default async function handler(request, response) {
   // 공지 수정: 저장된 강사 명단과 검증된 사용자 ID를 대조합니다.
   if (method === 'PUT') {
     const { data: instructor, error: roleError } = await client.from('vault_instructors')
-      .select('user_id').eq('user_id', identity.userId).maybeSingle();
+      .select('user_id').eq('user_id', ownerKeyOf(identity)).maybeSingle();
     if (roleError) {
       console.error('notices: 강사 명단 확인 실패', roleError.code ?? 'unknown');
       return fail(response, 502, 'NOTICES_UNAVAILABLE');

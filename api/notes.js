@@ -3,6 +3,7 @@ import { createRequire } from 'node:module';
 import { createClient } from '@supabase/supabase-js';
 import { createLoginVerifier } from '../src/verify-login.mjs';
 import { resourceId } from '../src/resources.mjs';
+import { ownerKeyOf } from '../src/owner-key.mjs';
 
 const require = createRequire(import.meta.url);
 const config = require('../aleph.config.json');
@@ -109,7 +110,8 @@ export default async function handler(request, response) {
     response.setHeader('WWW-Authenticate', 'Bearer error="invalid_token"');
     return fail(response, 401, 'INVALID_LOGIN');
   }
-  const userId = identity.userId; // 서버가 검증한 토큰의 사용자 ID만 사용
+  // 서버가 검증한 토큰에서 만든 주인 키만 사용(심판 시험 계정은 A·B를 구별)
+  const userId = ownerKeyOf(identity);
 
   if (id !== null && !UUID.test(id)) return fail(response, 400, 'INVALID_ID');
   // 8단계: 이 요청이 다루는 자원 ID(메모 목록 notes / 메모 한 건 note:<id>)를 응답 머리에 표시합니다.
