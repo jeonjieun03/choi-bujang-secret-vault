@@ -1,9 +1,9 @@
-# BYTE BACK 방어전 자료실 — 9단계 저장점
+# BYTE BACK 방어전 자료실 — 10단계 저장점
 
 이 저장소는 BYTE BACK 방어전 시작 틀 R5에서 출발한 학생 자료실입니다. 메모는 모두 실습용 가상 자료입니다. 실제 학생 자료, 토큰, 비밀키를 넣지 마세요.
 
 - 배포 주소: https://choi-bujang-secret-vault-opal.vercel.app
-- 현재 단계: 9단계(도플갱어를 찾고 권한을 거둡니다) 저장점
+- 현재 단계: 10단계(백업에서 자료실을 되살립니다) 저장점
 
 ## 지금 작동하는 기능
 
@@ -19,6 +19,7 @@
 10. 판정기 구역 규칙: 정확한 route·method·path 표로 메모 한 건 읽기·수정(`GET`·`PUT /notes/:id`)만 `zone_own_notes`로 허용합니다. 메모 전체 목록(`GET /notes`)은 여러 사람의 자료를 한꺼번에 여는 경로라 거부하고, 학생의 공지 수정은 `instructor_only`(`zone_instructor_notices`), 공지 목록·읽기와 그 밖의 경로·메서드·쿼리가 붙은 요청·`:id` 자리의 기능 이름(export 등)은 `route_allowlist`로 거부합니다. 메모 한 건의 주인 비교는 판정기가 추측하지 않고 자료 API가 합니다.
 11. 자료 API는 검증된 사용자와 저장된 값을 다시 대조합니다. 남의 메모는 404(서버 기록 사유 `not_owner_or_missing`), 강사 공지는 읽기·수정 모두 DB 강사 명단 `vault_instructors`에 있을 때만 허용하고 아니면 403 `INSTRUCTOR_ONLY`입니다. 화면 메뉴나 요청 본문의 `role`은 믿지 않습니다.
 12. 탐지기 `src/detect.mjs`(9단계): 가상 사건에서 가명 사용자·기기·요청 종류·판정·시각·네트워크만 읽습니다(메모 내용·토큰·실명은 읽지 않음). 규칙 `doppelganger_burst`는 같은 사용자의 GET이 어느 10분 구간에서 120건을 넘고 그 구간에 평소와 다른 네트워크 조회가 함께 있을 때만 의심으로 표시합니다(지역은 쓰지 않음, 네트워크 정보가 없는 연습 사건은 `docs/DETECT_EVENTS.md` 계약대로 다량 조회만 봄). 의심이면 `detect()`가 `{action:'propose_revocation', reasonCode:'burst_read', subject}`를, 별도 결과 `revocationProposal()`이 대상 가상 기기 한 개와 이유를 냅니다. 정상은 `observe`입니다. 회수를 직접 집행하지 않으며, 운영 반 엔진의 사건 전달·실제 회수는 연결·시험하지 않았습니다.
+13. 복구(10단계): `backup/policy/`의 침해 전 정책 사본(SHA-256 지문)을 다시 읽어 검증하고, 시험 정책 `policy/test-policy.json`과의 차이만 보여 준 뒤 확인을 받아 서비스 한 개만 되돌립니다(운영 판정기는 바꾸지 않음). 메모는 Supabase 비공개 사본 `vault_notes_backup`에서 내 메모 한 건만 `POST /api/notes/:id/restore`로 복원하고 감사 기록 `vault_restore_audit`에 한 줄 남깁니다.
 
 | 경로 | 동작 |
 |---|---|
@@ -96,7 +97,8 @@
 - 6단계: 판정기에 `device_registered` 규칙 추가(등록 기기의 자료실 읽기만 허용, 미등록·값 없음은 `device_not_registered` 거부), `npm run decider:test` 확인 순서 기록.
 - 7단계: 접속 정보 출처 구분 입력 검사, `step_up_required` 규칙 추가(복합 이상 `step_up`, 추가 확인 뒤 `allow`), 재로그인 검증 계약 상태 기록(실제 자료 차단은 미실행).
 - 8단계: 메모·강사 공지 자원 ID 분리와 공지 API(`/api/notices`), 판정기 구역 규칙(`zone_own_notes`·`zone_instructor_notices`·`route_allowlist`), 자료 API의 소유자·강사 명단 재대조. 저장점 뒤 보강: 판정기에서 메모 전체 목록 거부·주인 추측 규칙 제거, 공지 읽기도 강사만(`cb0c918`에서 심판 통과).
-- 9단계: 탐지기 입력 정리, `doppelganger_burst` 규칙(새 네트워크+10분 안 120건 초과), 별도 결과의 `propose_revocation` 제안(대상 가상 기기 한 개·`burst_read`).
+- 9단계: 탐지기 입력 정리, `doppelganger_burst` 규칙(새 네트워크+10분 안 120건 초과), 별도 결과의 `propose_revocation` 제안(대상 가상 기기 한 개·`burst_read`). (`34468ec`에서 심판 통과)
+- 10단계: 침해 전 정책 사본 검증·차이 보기(`npm run policy:diff`), 시험 정책 서비스 한 개 되돌리기(`npm run policy:restore`, 미리 보기 후 `--yes`, 감사 이력 보존), 비공개 메모 사본에서 한 건 복원(`POST /api/notes/:id/restore`, ID·소유자·내용 해시 대조, 감사 기록 추가만), 복구 뒤 재시험 순서.
 
 ## 6단계: 등록 기기 판정기 확인 순서
 

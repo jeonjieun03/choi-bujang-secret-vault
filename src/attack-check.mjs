@@ -1,7 +1,7 @@
 // The student changes this check as each stage adds an attack to the same app.
 // Never return tokens, private keys, real names, or note bodies.
 export async function runAttackChecks(config) {
-  if (config.step >= 3 && config.step <= 9) return runStep3Checks(config);
+  if (config.step >= 3 && config.step <= 10) return runStep3Checks(config);
   if (config.step !== 1) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
   let app;
   try {
@@ -79,6 +79,11 @@ async function runStep3Checks(config) {
       body: JSON.stringify({ title: '점검', body: '점검' }) }, '로그인 없는 메모 수정은 401로 거부', s => s === 401],
     ['anonymous_note_delete', `/api/notes/${probeId}`, { method: 'DELETE' }, '로그인 없는 메모 삭제는 401로 거부', s => s === 401],
   ];
+  // 10단계: 점검 20개 이내를 지키려고 수정·삭제 비로그인 점검 대신 복원 경로 비로그인 점검을 넣습니다.
+  if (config.step >= 10) {
+    checks.splice(checks.findIndex(([id]) => id === 'anonymous_note_update'), 2,
+      ['anonymous_note_restore', `/api/notes/${probeId}/restore`, { method: 'POST' }, '로그인 없는 메모 복원(POST /api/notes/:id/restore)은 401로 거부', s => s === 401]);
+  }
   const results = [];
   for (const [attackId, path, init, expected, ok] of checks) {
     const result = await statusOf(app, path, init);
@@ -148,6 +153,21 @@ async function runStep3Checks(config) {
       }
       results.push({ attackId: 'cross_zone_api_requests', expected: '다른 구역 메모 조회·수정·목록과 학생의 공지 수정은 자료 API에서 404·403',
         observed: '미실행: A·B 로그인 토큰이 필요해 자동 점검에서 요청하지 않음' });
+    }
+    if (config.step >= 10) {
+      // 10단계: 침해 전 정책 사본을 다시 읽어 검증(SHA-256·판정기 대조)하고 시험 정책과 비교한 로컬 결과입니다.
+      try {
+        const { loadVerifiedBackup, loadTestPolicy, diffPolicies } = await import('./policy-diff.mjs');
+        const { fileURLToPath } = await import('node:url');
+        const root = fileURLToPath(new URL('..', import.meta.url));
+        const backup = await loadVerifiedBackup(root);
+        const diff = diffPolicies(loadTestPolicy(`${root}policy/test-policy.json`), backup.snapshot);
+        results.push({ attackId: 'local_policy_backup_verified', expected: '로컬: 정책 사본 SHA-256·판정기 대조 일치, 시험 정책과 차이 없음',
+          observed: `로컬 정책 사본 ${backup.manifest.version} 검증 일치 · 시험 정책 차이 ${diff.changes.length}개` });
+      } catch (error) {
+        results.push({ attackId: 'local_policy_backup_verified', expected: '로컬: 정책 사본 SHA-256·판정기 대조 일치, 시험 정책과 차이 없음',
+          observed: `로컬 정책 사본 검증 중단: ${String(error?.message ?? 'unknown').slice(0, 120)}` });
+      }
     }
     if (config.step >= 9) {
       // 9단계: 로컬 탐지기에 가상 사건만 넣어 본 결과입니다. 실제 회수·경과 시간은 심판이 확인합니다.
