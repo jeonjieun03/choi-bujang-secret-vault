@@ -9,6 +9,57 @@ export const RULE_IDS = Object.freeze(['starter.deny', 'device_registered']);
 
 const NOTES_READ_ROUTES = new Set(['GET /notes', 'GET /notes/:id']);
 
+// 7단계 입력 검사: 엔진이 넘긴 접속 정보(request.signals, request.recentEvents)의 출처를 구분합니다.
+// - 'judge_fixture': 심판이 보낸 가상 접속 사건. 가상 사건 규칙에만 쓰고 실제 위치 증거로 취급하지 않습니다.
+// - 'none': 실제 경로. 엔진이 접속 정보를 주지 않았다는 뜻이며 값은 모두 '모름(null)'입니다.
+// - 'untrusted': 그 밖의 출처(브라우저·클라이언트 헤더 등). 값을 버리고 '모름(null)'으로 둡니다.
+// 값이 없거나 형식이 틀리면 임의의 정상값('local', 'usual' 등)으로 채우지 않고 null 로 남깁니다.
+// request.headers, request.geo 같은 계약 밖 값은 읽지 않습니다.
+const SIGNAL_KEYS = 'hour,network,region,source';
+const TEXT_VALUE = /^[a-z][a-z0-9_-]{0,31}$/u;
+const EVENT_KIND = /^[a-z][a-z0-9_]{0,47}$/u;
+const MAX_EVENTS = 12;
+
+function textOrNull(value) {
+  return typeof value === 'string' && TEXT_VALUE.test(value) && value !== 'unknown' ? value : null;
+}
+
+function eventsFrom(list) {
+  if (!Array.isArray(list) || list.length > MAX_EVENTS) return [];
+  const events = [];
+  for (const item of list) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)
+        || Object.keys(item).sort().join(',') !== 'ageSeconds,count,kind') continue;
+    const { kind, ageSeconds, count } = item;
+    if (typeof kind !== 'string' || !EVENT_KIND.test(kind)) continue;
+    if (!Number.isInteger(ageSeconds) || ageSeconds < 0 || ageSeconds > 86_400) continue;
+    if (!Number.isInteger(count) || count < 0 || count > 1_000_000) continue;
+    events.push(Object.freeze({ kind, ageSeconds, count }));
+  }
+  return events;
+}
+
+export function readAccessContext(request) {
+  const unknown = Object.freeze({ source: 'untrusted', region: null, network: null, hour: null, events: Object.freeze([]) });
+  const signals = request?.signals;
+  if (!signals || typeof signals !== 'object' || Array.isArray(signals)
+      || Object.keys(signals).sort().join(',') !== SIGNAL_KEYS) {
+    return unknown;
+  }
+  if (signals.source === 'none') {
+    return Object.freeze({ source: 'none', region: null, network: null, hour: null, events: Object.freeze([]) });
+  }
+  if (signals.source !== 'judge_fixture') return unknown;
+  const hour = Number.isInteger(signals.hour) && signals.hour >= 0 && signals.hour <= 23 ? signals.hour : null;
+  return Object.freeze({
+    source: 'judge_fixture',
+    region: textOrNull(signals.region),
+    network: textOrNull(signals.network),
+    hour,
+    events: Object.freeze(eventsFrom(request.recentEvents)),
+  });
+}
+
 function isNotesRead(request) {
   return request.service === 'notes' && request.method === 'GET'
     && (typeof request.route !== 'string' || NOTES_READ_ROUTES.has(request.route));
