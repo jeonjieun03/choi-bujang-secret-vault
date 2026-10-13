@@ -152,7 +152,7 @@
       LOGIN_REQUIRED: '로그인이 필요합니다.', INVALID_LOGIN: '로그인 확인에 실패했습니다. 다시 로그인하세요.',
       INVALID_NOTE: '제목과 내용을 입력하세요(제목 120자, 내용 2000자 이내).', INVALID_ID: '메모 ID 형식이 맞지 않습니다.',
       NOT_FOUND: '메모를 찾을 수 없습니다. 이미 지워졌거나 내 메모가 아닙니다.', OWNER_CHANGE_FORBIDDEN: '메모 주인은 바꿀 수 없습니다.', ID_ALREADY_EXISTS: '같은 ID의 메모가 이미 있습니다.',
-      BACKUP_INVALID: '사본 검증에 실패해 복원하지 않았습니다.', RESTORE_UNAVAILABLE: '지금은 복원할 수 없습니다.', RESTORE_VERIFY_FAILED: '복원 뒤 대조가 맞지 않습니다.',
+      BACKUP_INVALID: '사본 검증에 실패해 복원하지 않았습니다.', BACKUP_UNVERIFIED: '봉인으로 검증한 사본이 없어 복원하지 않았습니다(이 기능 이후에 만든 메모만 복원됩니다).', RESTORE_UNAVAILABLE: '지금은 복원할 수 없습니다.', RESTORE_VERIFY_FAILED: '복원 뒤 대조가 맞지 않습니다.',
     };
     async function api(path, { method = 'GET', body } = {}, retried = false) {
       if (!currentSession?.access_token) throw new Error(REASONS.LOGIN_REQUIRED);
@@ -225,7 +225,10 @@
         const data = await api(`/api/notes/${encodeURIComponent(id.trim())}/restore`, { method: 'POST' });
         const m = data.restored.matches;
         const state = { tampered: '변조됨 → 복원', deleted: '삭제됨 → 복원', unchanged: '이미 사본과 같음' }[data.restored.previous];
-        out.textContent = `복원 결과: ${state} · ID ${m.id ? '일치' : '불일치'} · 소유자 ${m.owner ? '일치' : '불일치'} · 내용 해시 ${m.contentSha256 ? '일치' : '불일치'} (${data.restored.sha256.slice(0, 12)}…)`;
+        const names = { note: '메모 전체', title: '제목', body: '내용' };
+        const changed = (data.restored.changes ?? []).map(c => names[c] ?? c).join('·') || '없음';
+        const version = data.restored.backupVersion ? new Date(data.restored.backupVersion).toLocaleString() : '-';
+        out.textContent = `복원 결과: ${state} · 봉인 검증 ${data.restored.backupVerified ? '통과' : '미확인'} · 사본 버전 ${version} · 바뀐 항목 ${changed} · ID ${m.id ? '일치' : '불일치'} · 소유자 ${m.owner ? '일치' : '불일치'} · 내용 해시 ${m.contentSha256 ? '일치' : '불일치'} (${data.restored.sha256.slice(0, 12)}…)`;
         await loadNotes();
       } catch (error) { out.textContent = `복원 실패: ${error.message}`; }
     }
