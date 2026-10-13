@@ -132,10 +132,10 @@ async function runStep3Checks(config) {
         const { normal } = fixtureRequests();
         const id = '11111111-2222-4333-8444-555555555555';
         const ask = (method, route, path, extra = {}) => decide({ ...normal, requestId: crypto.randomUUID(), method, route, path, ...extra });
-        const own = await ask('PUT', 'PUT /notes/:id', `/notes/${id}`);
+        const own = await ask('PUT', 'PUT /notes/:id', '/notes/demo');
         const notice = await ask('PUT', 'PUT /notices/:id', `/notices/${id}`);
         const unknown = await ask('GET', 'GET /notes/:id', '/notes/export');
-        results.push({ attackId: 'local_zone_own_note_update', expected: '로컬 판정기: 자기 메모 수정 경로는 allow',
+        results.push({ attackId: 'local_zone_own_note_update', expected: '로컬 판정기: 연습 주체의 자기 연습 메모(demo) 수정은 allow',
           observed: `로컬 가상 요청 결과 ${own.decision} · ${own.reasonCode}` });
         results.push({ attackId: 'local_zone_student_notice_update', expected: '로컬 판정기: 학생의 공지 수정은 deny·instructor_only',
           observed: `로컬 가상 요청 결과 ${notice.decision} · ${notice.reasonCode}` });

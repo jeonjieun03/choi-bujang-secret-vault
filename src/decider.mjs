@@ -199,10 +199,10 @@ export async function decide(request) {
   if (!zone.allow) {
     return { ...base, decision: 'deny', reasonCode: zone.reason, ruleIds: [zone.zone] };
   }
-  // 메모 한 건 읽기: 판정 계약에는 메모 주인 칸이 없어 요청자가 주인인지 확인할 수 없으므로,
-  // 주인 확인이 필요 없는 연습용 ID(PRACTICE_NOTE_IDS)만 허용하고 나머지는 거부합니다.
-  // (실제 사이트의 한 건 읽기는 자료 API가 저장된 owner_id로 주인을 확인합니다.)
-  if (zone.route === 'GET /notes/:id' && !PRACTICE_NOTE_IDS.has(zone.id)) {
+  // 메모 한 건 읽기·수정: 판정 계약에는 메모 주인 칸이 없어 요청자가 주인인지 확인할 수 없으므로,
+  // 주인이 정해진 연습용 ID(PRACTICE_NOTE_IDS)만 허용하고 나머지 한 건 읽기(GET)·수정(PUT)은 거부합니다.
+  // (실제 사이트의 한 건 읽기·수정은 자료 API가 저장된 owner_id로 주인을 확인합니다.)
+  if (zone.id !== null && !PRACTICE_NOTE_IDS.has(zone.id)) {
     return { ...base, decision: 'deny', reasonCode: 'owner_not_verified', ruleIds: [zone.zone] };
   }
   // 연습용 메모는 표에 적힌 주인만 읽기·수정 가능
