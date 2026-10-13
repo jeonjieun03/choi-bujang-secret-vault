@@ -11,7 +11,8 @@
 // 신호 하나(지역만, 시각만 등)로는 막지 않으며, 영구 차단(deny)하지 않습니다. 최근에 추가 확인을 마친 요청은 다시 판정해 허용합니다.
 //
 // 8단계 구역 규칙: 엔진이 확인한 사용자(subjectId)·기기(deviceRegistered)·메서드·정확한 경로(route·path)로 구역을 나눕니다.
-//   zone_own_notes          GET /notes, GET /notes/:id, PUT /notes/:id  → 자기 메모 읽기·수정 허용
+//   zone_own_notes          GET /notes/:id, PUT /notes/:id → 메모 한 건 읽기·수정 허용 (주인 비교는 자료 API)
+//                           GET /notes(전체 목록)는 여러 사람 자료를 한꺼번에 여는 경로라 거부
 //   zone_instructor_notices PUT /notices/:id → instructor_only 거부 (학생에게 강사 구역은 다른 구역이라 공지 경로는 표에 없으면 모두 거부)
 //   route_allowlist         위 표에 없는 경로·메서드, 쿼리가 붙은 요청, :id 자리에 기능 이름(export 등) → 거부
 // 판정 계약에는 메모 주인·강사 역할 칸이 없으므로(request.role 등은 만들지 않음), 강사 확인이 필요한 공지 수정은
@@ -20,12 +21,13 @@ export const RULE_IDS = Object.freeze(['starter.deny', 'device_registered', 'ste
   'zone_own_notes', 'zone_instructor_notices', 'route_allowlist']);
 
 // 정확한 경로 표: route(엔진이 확인한 경로 모양) → 구역·허용 여부. 표에 없으면 거부합니다.
+const NOTE_ONE = /^(?:\/api)?\/notes\/([A-Za-z0-9_-]{1,64})$/u;
 const ZONE_ROUTES = Object.freeze({
-  'GET /notes':        Object.freeze({ zone: 'zone_own_notes', allow: true, path: /^\/notes$/u }),
-  'GET /notes/:id':    Object.freeze({ zone: 'zone_own_notes', allow: true, path: /^\/notes\/([A-Za-z0-9_-]{1,64})$/u }),
-  'PUT /notes/:id':    Object.freeze({ zone: 'zone_own_notes', allow: true, path: /^\/notes\/([A-Za-z0-9_-]{1,64})$/u }),
+  // 메모 전체 목록(GET /notes)은 여러 사람의 자료를 한꺼번에 여는 경로라 표에 두지 않습니다(route_allowlist 로 거부).
+  'GET /notes/:id':    Object.freeze({ zone: 'zone_own_notes', allow: true, path: NOTE_ONE }),
+  'PUT /notes/:id':    Object.freeze({ zone: 'zone_own_notes', allow: true, path: NOTE_ONE }),
   'PUT /notices/:id':  Object.freeze({ zone: 'zone_instructor_notices', allow: false, reason: 'instructor_only',
-    path: /^\/notices\/([A-Za-z0-9_-]{1,64})$/u }),
+    path: /^(?:\/api)?\/notices\/([A-Za-z0-9_-]{1,64})$/u }),
 });
 // :id 자리에는 자료 ID만 옵니다(같은 깊이에 기능·구역 경로를 두지 않음).
 // - 실제 자료 ID: UUID
@@ -47,36 +49,8 @@ function isResourceId(value) {
   return SHORT_ID.test(value) && !FUNCTION_WORDS.has(value);
 }
 
-// 연습용 메모의 주인 표(6·7단계 연습 요청의 '/notes/demo'는 연습 주체 'learner_fixture'의 메모).
-// 판정 계약에 주인 칸이 없어 실제 메모의 주인은 판정기가 알 수 없으므로, 주인이 정해진 연습용 메모만 표에 둡니다.
-// 실제 메모의 주인 확인은 자료 API가 저장된 owner_id로 합니다.
-const PRACTICE_NOTE_OWNERS = Object.freeze(new Map([['demo', 'learner_fixture']]));
-const PRACTICE_NOTE_IDS = new Set(PRACTICE_NOTE_OWNERS.keys());
-
-// 자기 메모 주인 기억(보조 규칙): 판정 계약에는 메모 주인 칸이 없으므로, 같은 판정기 실행 안에서
-// 엔진이 확인한 subjectId·deviceId 가 처음 읽거나 고친 메모(정확한 path)의 주인을 기억하고, 다른 사용자·기기의
-// 같은 메모 요청은 거부합니다. 최종 주인 확인은 자료 API 가 저장된 owner_id 로 다시 합니다.
-// 기억은 이 실행의 메모리에만 있고(파일·네트워크 사용 없음), 오래된 것부터 지워 크기를 제한합니다.
-const NOTE_OWNERS = new Map();
-const NOTE_OWNERS_MAX = 10_000;
-function rememberedOwner(resourceKey, subjectId) {
-  const owner = NOTE_OWNERS.get(resourceKey);
-  if (owner !== undefined) return owner;
-  if (NOTE_OWNERS.size >= NOTE_OWNERS_MAX) NOTE_OWNERS.delete(NOTE_OWNERS.keys().next().value);
-  NOTE_OWNERS.set(resourceKey, subjectId);
-  return subjectId;
-}
-
-// 내 자료실의 반·프로젝트 기억(보조 규칙): 엔진이 확인한 classId·projectId 는 요청이 어느 반·학생 프로젝트의
-// 자료실로 가는지 알려 줍니다. 처음 허용한 내 자료실 요청의 반·프로젝트를 이 자료실 것으로 기억하고,
-// 다른 반·프로젝트(다른 학생 구역)의 메모 요청은 거부합니다. 메모리에만 있고 파일·네트워크는 쓰지 않습니다.
-let VAULT_SCOPE = null;
-function inVaultScope(request) {
-  if (typeof request.classId !== 'string' || !request.classId
-      || typeof request.projectId !== 'string' || !request.projectId) return false;
-  VAULT_SCOPE ??= Object.freeze({ classId: request.classId, projectId: request.projectId });
-  return VAULT_SCOPE.classId === request.classId && VAULT_SCOPE.projectId === request.projectId;
-}
+// 메모 한 건의 주인 비교는 자료 API가 저장된 owner_id로 합니다. 판정 계약에는 주인 칸이 없으므로
+// 판정기는 주인을 추측하거나 기억하지 않고, 사용자·기기·메서드·정확한 경로만 봅니다.
 
 // 요청이 어느 구역의 어떤 경로인지 정확히 맞춰 봅니다. 맞지 않으면 null.
 // 내 자료실 서비스. 엔진이 확인한 service 가 이것이 아니면(다른 구역·다른 서비스) 경로 모양이 같아도 거부합니다.
@@ -198,30 +172,6 @@ export async function decide(request) {
   }
   if (!zone.allow) {
     return { ...base, decision: 'deny', reasonCode: zone.reason, ruleIds: [zone.zone] };
-  }
-  // 메모 한 건 읽기·수정: 판정 계약에는 메모 주인 칸이 없어 요청자가 주인인지 확인할 수 없으므로,
-  // 주인이 정해진 연습용 ID(PRACTICE_NOTE_IDS)만 허용하고 나머지 한 건 읽기(GET)·수정(PUT)은 거부합니다.
-  // (실제 사이트의 한 건 읽기·수정은 자료 API가 저장된 owner_id로 주인을 확인합니다.)
-  if (zone.id !== null && !PRACTICE_NOTE_IDS.has(zone.id)) {
-    return { ...base, decision: 'deny', reasonCode: 'owner_not_verified', ruleIds: [zone.zone] };
-  }
-  // 연습용 메모는 표에 적힌 주인만 읽기·수정 가능
-  if (zone.id !== null && PRACTICE_NOTE_OWNERS.has(zone.id)
-      && PRACTICE_NOTE_OWNERS.get(zone.id) !== request.subjectId) {
-    return { ...base, decision: 'deny', reasonCode: 'not_resource_owner', ruleIds: [zone.zone] };
-  }
-  // 다른 반·프로젝트(다른 학생 구역)의 요청은 거부
-  if (!inVaultScope(request)) {
-    return { ...base, decision: 'deny', reasonCode: 'other_zone', ruleIds: [zone.zone] };
-  }
-  // 자기 메모 한 건 읽기·수정: 기억된 주인과 다른 사람이면 거부
-  if (zone.zone === 'zone_own_notes' && zone.id !== null) {
-    // 주인은 엔진이 확인한 사용자와 기기를 함께 묶어 기억합니다(같은 사람이라도 다른 기기면 다른 주체).
-    const requester = `${request.subjectId}|${typeof request.deviceId === 'string' ? request.deviceId : ''}`;
-    const owner = rememberedOwner(`note:${zone.id}`, requester);
-    if (owner !== requester) {
-      return { ...base, decision: 'deny', reasonCode: 'not_resource_owner', ruleIds: ['zone_own_notes'] };
-    }
   }
   return { ...base, decision: 'allow', reasonCode: 'approved', ruleIds: ['device_registered', zone.zone] };
 
