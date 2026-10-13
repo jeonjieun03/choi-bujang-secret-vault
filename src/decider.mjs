@@ -19,7 +19,13 @@
 // 판정 계약에는 메모 주인·강사 역할 칸이 없으므로(request.role 등은 만들지 않음), 강사 확인이 필요한 공지 수정은
 // 판정기에서 기본 거부하고, "남의 메모인지"는 자료 API가 저장된 owner_id로 다시 확인합니다.
 export const RULE_IDS = Object.freeze(['starter.deny', 'device_registered', 'step_up_required',
-  'zone_own_notes', 'zone_instructor_notices', 'route_allowlist']);
+  'zone_own_notes', 'zone_instructor_notices', 'route_allowlist', 'restore_verified_policy']);
+
+// 10단계 restore_verified_policy: 복구 경로는 엔진이 알려 준 정책 버전(request.policyRevision)이
+// 침해 전에 검증한 안전 정책 버전일 때만 통과시킵니다. 침공으로 정책 버전이 바뀌었거나 값이 없으면
+// 복원하지 않고 멈춥니다(deny). 검증 버전은 backup/policy/manifest.json 의 policyRevision 과 같습니다.
+// 다른 경로의 판정은 바꾸지 않습니다.
+const VERIFIED_POLICY_REVISIONS = Object.freeze(new Set([1]));
 
 // 정확한 경로 표: route(엔진이 확인한 경로 모양) → 구역·허용 여부. 표에 없으면 거부합니다.
 const NOTE_ONE = /^(?:\/api)?\/notes\/([A-Za-z0-9_-]{1,64})$/u;
@@ -178,7 +184,11 @@ export async function decide(request) {
   if (!zone.allow) {
     return { ...base, decision: 'deny', reasonCode: zone.reason, ruleIds: [zone.zone] };
   }
-  return { ...base, decision: 'allow', reasonCode: 'approved', ruleIds: ['device_registered', zone.zone] };
+  if (zone.route.endsWith('/restore') && !VERIFIED_POLICY_REVISIONS.has(request.policyRevision)) {
+    return { ...base, decision: 'deny', reasonCode: 'policy_unverified', ruleIds: ['restore_verified_policy'] };
+  }
+  const rules = zone.route.endsWith('/restore') ? ['device_registered', zone.zone, 'restore_verified_policy'] : ['device_registered', zone.zone];
+  return { ...base, decision: 'allow', reasonCode: 'approved', ruleIds: rules };
 
   // 그 밖의 요청은 시작 틀의 기본 응답대로 거부
   return { ...base, decision: 'deny', reasonCode: 'starter_not_ready', ruleIds: [RULE_IDS[0]] };
