@@ -61,6 +61,17 @@ function rememberedOwner(resourceKey, subjectId) {
   return subjectId;
 }
 
+// 내 자료실의 반·프로젝트 기억(보조 규칙): 엔진이 확인한 classId·projectId 는 요청이 어느 반·학생 프로젝트의
+// 자료실로 가는지 알려 줍니다. 처음 허용한 내 자료실 요청의 반·프로젝트를 이 자료실 것으로 기억하고,
+// 다른 반·프로젝트(다른 학생 구역)의 메모 요청은 거부합니다. 메모리에만 있고 파일·네트워크는 쓰지 않습니다.
+let VAULT_SCOPE = null;
+function inVaultScope(request) {
+  if (typeof request.classId !== 'string' || !request.classId
+      || typeof request.projectId !== 'string' || !request.projectId) return false;
+  VAULT_SCOPE ??= Object.freeze({ classId: request.classId, projectId: request.projectId });
+  return VAULT_SCOPE.classId === request.classId && VAULT_SCOPE.projectId === request.projectId;
+}
+
 // 요청이 어느 구역의 어떤 경로인지 정확히 맞춰 봅니다. 맞지 않으면 null.
 // 내 자료실 서비스. 엔진이 확인한 service 가 이것이 아니면(다른 구역·다른 서비스) 경로 모양이 같아도 거부합니다.
 const VAULT_SERVICE = 'notes';
@@ -181,6 +192,10 @@ export async function decide(request) {
   }
   if (!zone.allow) {
     return { ...base, decision: 'deny', reasonCode: zone.reason, ruleIds: [zone.zone] };
+  }
+  // 다른 반·프로젝트(다른 학생 구역)의 요청은 거부
+  if (!inVaultScope(request)) {
+    return { ...base, decision: 'deny', reasonCode: 'other_zone', ruleIds: [zone.zone] };
   }
   // 자기 메모 한 건 읽기·수정: 기억된 주인과 다른 사람이면 거부
   if (zone.zone === 'zone_own_notes' && zone.id !== null) {
