@@ -27,8 +27,25 @@ const ZONE_ROUTES = Object.freeze({
   'PUT /notices/:id':  Object.freeze({ zone: 'zone_instructor_notices', allow: false, reason: 'instructor_only',
     path: /^\/notices\/([A-Za-z0-9_-]{1,64})$/u }),
 });
-// :id 자리에 오면 안 되는 기능 이름(같은 깊이에 기능 경로를 두지 않음)
-const FUNCTION_WORDS = new Set(['export', 'import', 'download', 'all', 'bulk', 'admin', 'search', 'list', 'new', 'edit', 'delete']);
+// :id 자리에는 자료 ID만 옵니다(같은 깊이에 기능·구역 경로를 두지 않음).
+// - 실제 자료 ID: UUID
+// - 그 밖에는 영문 소문자·숫자로만 된 짧은 ID(연습용 'demo' 등)만 받고, 구역·기능 이름은 거부합니다.
+//   '_'·'-'가 섞인 이름(learner_b, all-users 등)은 UUID가 아니면 거부합니다.
+const RESOURCE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
+const SHORT_ID = /^[a-z0-9]{1,16}$/u;
+const FUNCTION_WORDS = new Set([
+  // 기능 이름
+  'export', 'import', 'download', 'upload', 'all', 'bulk', 'admin', 'search', 'list', 'new', 'edit', 'delete',
+  'copy', 'share', 'sync', 'backup', 'dump', 'raw', 'debug', 'internal', 'batch', 'print',
+  // 구역·다른 사용자 이름
+  'instructor', 'instructors', 'teacher', 'teachers', 'staff', 'notice', 'notices', 'shared', 'public',
+  'class', 'classes', 'group', 'team', 'others', 'other', 'users', 'user', 'everyone', 'members', 'students',
+  'student', 'owner', 'owners', 'me', 'self', 'mine', 'any', 'root', 'system',
+]);
+function isResourceId(value) {
+  if (RESOURCE_UUID.test(value)) return true;
+  return SHORT_ID.test(value) && !FUNCTION_WORDS.has(value);
+}
 
 // 요청이 어느 구역의 어떤 경로인지 정확히 맞춰 봅니다. 맞지 않으면 null.
 // 내 자료실 서비스. 엔진이 확인한 service 가 이것이 아니면(다른 구역·다른 서비스) 경로 모양이 같아도 거부합니다.
@@ -42,7 +59,7 @@ export function matchZoneRoute(request) {
   if (request.method !== route.split(' ')[0]) return null;
   const m = typeof request.path === 'string' ? entry.path.exec(request.path) : null;
   if (!m) return null;
-  if (m[1] && FUNCTION_WORDS.has(m[1].toLowerCase())) return null;
+  if (m[1] !== undefined && !isResourceId(m[1])) return null;
   return { route, ...entry };
 }
 
