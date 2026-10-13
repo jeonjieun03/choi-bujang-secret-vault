@@ -4,6 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>BYTE BACK | 점령된 자료실</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#101a28">
+  <link rel="icon" href="/icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="/icon-192.png">
   <style>
     :root { color-scheme: dark; font-family: system-ui, sans-serif; }
     body { margin: 0; min-height: 100vh; background: #101a28; color: #ecf4ff; }
@@ -41,12 +45,28 @@
     .btn:disabled { opacity: .6; cursor: wait; }
     .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
     li span { white-space: pre-wrap; }
+    .device, .offline { margin: 20px 0; padding: 14px 18px; border-radius: 14px; }
+    .device { border: 1px solid #51667c; background: #16243a; }
+    .device h2 { margin: 0 0 8px; font-size: 17px; }
+    .device .badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 14px; font-weight: 700; background: #5a4a1f; color: #ffe7a3; }
+    .device small { display: block; margin-top: 8px; color: #8fa5bd; line-height: 1.6; }
+    .offline { border: 1px solid #d0a073; background: #5a3a1f44; color: #ffe7cf; }
   </style>
 </head>
 <body>
   <main>
     <div class="eyebrow">BYTE BACK · 3단계 진짜 로그인을 붙입니다</div>
     <h1>점령된 자료실</h1>
+    <!-- 11단계: 오프라인 안내. 자료는 서버에서만 받으므로 연결이 끊기면 자료를 보여 줄 수 없다고 알립니다. -->
+    <div id="offline-banner" class="offline" role="status" hidden>지금은 오프라인입니다. 내 자료실은 메모를 이 기기에 저장하지 않으므로, 인터넷에 다시 연결되면 자료를 불러옵니다.</div>
+    <!-- 11단계: 기기 승인 상태. 승인 여부는 서버와 판정기가 정합니다. 앱 설치 여부로는 바뀌지 않습니다. -->
+    <section id="device" class="device" aria-live="polite">
+      <h2>이 기기 승인 상태</h2>
+      <span id="device-state" class="badge">승인 확인 전</span>
+      <small id="device-detail">서버가 아직 이 기기를 등록 기기로 확인하지 않았습니다.</small>
+      <small id="install-state">실행 형태: 브라우저 탭</small>
+      <small>앱으로 설치했다는 표시만으로는 기기 확인이 끝나지 않습니다. 기기 승인 여부는 서버와 판정기가 정합니다.</small>
+    </section>
     <p>아래 기록은 모두 실습을 위해 만든 가상 자료입니다.</p>
 
     <section class="auth" aria-live="polite">
@@ -90,6 +110,21 @@
   <script type="module">
     // 이 화면에는 Supabase 주소나 키가 없습니다. 로그인·자료 요청은 모두 서버 함수(/api/session, /api/notes)로 갑니다.
     const SESSION_KEY = 'byteback.session';
+
+    // 11단계: 실행 형태(설치된 앱/브라우저 탭)는 안내로만 보여 주고 기기 승인 상태에는 쓰지 않습니다.
+    function showInstallState() {
+      const installed = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+      document.querySelector('#install-state').textContent =
+        `실행 형태: ${installed ? '설치된 앱 화면' : '브라우저 탭'} (설치 여부는 기기 승인과 무관합니다)`;
+    }
+    // 오프라인 안내: 연결 상태만 보여 주고, 자료를 따로 저장하지 않습니다.
+    function showOnlineState() {
+      document.querySelector('#offline-banner').hidden = navigator.onLine !== false;
+    }
+    showInstallState();
+    showOnlineState();
+    window.addEventListener('online', showOnlineState);
+    window.addEventListener('offline', showOnlineState);
 
     const $ = selector => document.querySelector(selector);
     const signedOut = $('#signed-out');
