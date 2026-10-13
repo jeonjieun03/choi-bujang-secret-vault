@@ -47,6 +47,9 @@ function isResourceId(value) {
   return SHORT_ID.test(value) && !FUNCTION_WORDS.has(value);
 }
 
+// 판정기에서 주인 확인 없이 한 건 읽기를 허용하는 연습용 메모 ID(6·7단계 연습 요청의 '/notes/demo').
+const PRACTICE_NOTE_IDS = new Set(['demo']);
+
 // 자기 메모 주인 기억(보조 규칙): 판정 계약에는 메모 주인 칸이 없으므로, 같은 판정기 실행 안에서
 // 엔진이 확인한 subjectId·deviceId 가 처음 읽거나 고친 메모(정확한 path)의 주인을 기억하고, 다른 사용자·기기의
 // 같은 메모 요청은 거부합니다. 최종 주인 확인은 자료 API 가 저장된 owner_id 로 다시 합니다.
@@ -192,6 +195,12 @@ export async function decide(request) {
   }
   if (!zone.allow) {
     return { ...base, decision: 'deny', reasonCode: zone.reason, ruleIds: [zone.zone] };
+  }
+  // 메모 한 건 읽기: 판정 계약에는 메모 주인 칸이 없어 요청자가 주인인지 확인할 수 없으므로,
+  // 주인 확인이 필요 없는 연습용 ID(PRACTICE_NOTE_IDS)만 허용하고 나머지는 거부합니다.
+  // (실제 사이트의 한 건 읽기는 자료 API가 저장된 owner_id로 주인을 확인합니다.)
+  if (zone.route === 'GET /notes/:id' && !PRACTICE_NOTE_IDS.has(zone.id)) {
+    return { ...base, decision: 'deny', reasonCode: 'owner_not_verified', ruleIds: [zone.zone] };
   }
   // 다른 반·프로젝트(다른 학생 구역)의 요청은 거부
   if (!inVaultScope(request)) {
