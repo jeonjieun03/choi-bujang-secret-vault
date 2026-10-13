@@ -4,6 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>BYTE BACK | 점령된 자료실</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#101a28">
+  <link rel="icon" href="/icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="/icon-192.png">
   <style>
     :root { color-scheme: dark; font-family: system-ui, sans-serif; }
     body { margin: 0; min-height: 100vh; background: #101a28; color: #ecf4ff; }
@@ -41,13 +45,28 @@
     .btn:disabled { opacity: .6; cursor: wait; }
     .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
     li span { white-space: pre-wrap; }
+    .device { margin: 26px 0; padding: 18px 19px; border: 1px solid #51667c; border-radius: 14px; background: #16243a; }
+    .device h2 { margin: 0 0 10px; font-size: 18px; }
+    .device .state { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 14px; font-weight: 700; }
+    .device .state.pending { background: #5a4a1f; color: #ffe7a3; }
+    .device .state.approved { background: #1f5a4f; color: #b8fff2; }
+    .device small { display: block; margin-top: 8px; color: #8fa5bd; line-height: 1.6; }
   </style>
 </head>
 <body>
   <main>
-    <div class="eyebrow">BYTE BACK · 3단계 진짜 로그인을 붙입니다</div>
+    <div class="eyebrow">BYTE BACK · 11단계 나만의 접속 앱</div>
     <h1>점령된 자료실</h1>
     <p>아래 기록은 모두 실습을 위해 만든 가상 자료입니다.</p>
+
+    <!-- 11단계: 기기 승인 상태. 승인 여부는 서버(와 판정기)가 정합니다. 앱 설치 여부로는 바뀌지 않습니다. -->
+    <section id="device" class="device" aria-live="polite">
+      <h2>이 기기 승인 상태</h2>
+      <span id="device-state" class="state pending">승인 확인 전</span>
+      <p id="device-detail">서버가 아직 이 기기를 등록 기기로 확인하지 않았습니다.</p>
+      <small id="install-state">실행 형태: 브라우저 탭</small>
+      <small>앱으로 설치했다는 표시는 기기 확인이 아닙니다. 기기 승인은 서버가 따로 확인하며, 기기 키와 로그인 정보는 이 기기의 브라우저 저장소에 넣지 않습니다.</small>
+    </section>
 
     <section class="auth" aria-live="polite">
       <div id="signed-out">
@@ -132,6 +151,29 @@
     const editor = $('#editor');
     const noteError = $('#note-error');
     let currentSession = null;
+
+    // 11단계: 실행 형태(설치된 앱/브라우저 탭)는 안내로만 보여 주고, 기기 승인 상태에는 쓰지 않습니다.
+    function showInstallState() {
+      const installed = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+      $('#install-state').textContent = `실행 형태: ${installed ? '설치된 앱 화면' : '브라우저 탭'} (설치 여부는 기기 승인과 무관합니다)`;
+    }
+    // 기기 승인 상태는 서버가 확인한 값만 표시합니다. 서버 확인 전에는 항상 '승인 확인 전'입니다.
+    function showDeviceState(serverState) {
+      const approved = serverState?.approved === true;
+      const badge = $('#device-state');
+      badge.textContent = approved ? '서버가 승인한 기기' : '승인 확인 전';
+      badge.className = `state ${approved ? 'approved' : 'pending'}`;
+      $('#device-detail').textContent = approved
+        ? '서버가 이 기기를 등록 기기로 확인했습니다.'
+        : '서버가 아직 이 기기를 등록 기기로 확인하지 않았습니다.';
+    }
+    showInstallState();
+    showDeviceState(null);
+    matchMedia('(display-mode: standalone)').addEventListener?.('change', showInstallState);
+    // 오프라인 안내용 서비스 워커(보호 요청 /api 와 로그인 정보는 저장하지 않음)
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
+    }
     let loadSeq = 0;
 
     function showNoteError(message) {
