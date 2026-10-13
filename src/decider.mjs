@@ -12,7 +12,7 @@
 //
 // 8단계 구역 규칙: 엔진이 확인한 사용자(subjectId)·기기(deviceRegistered)·메서드·정확한 경로(route·path)로 구역을 나눕니다.
 //   zone_own_notes          GET /notes, GET /notes/:id, PUT /notes/:id  → 자기 메모 읽기·수정 허용
-//   zone_instructor_notices GET /notices, GET /notices/:id → 읽기 허용, PUT /notices/:id → instructor_only 거부
+//   zone_instructor_notices PUT /notices/:id → instructor_only 거부 (학생에게 강사 구역은 다른 구역이라 공지 경로는 표에 없으면 모두 거부)
 //   route_allowlist         위 표에 없는 경로·메서드, 쿼리가 붙은 요청, :id 자리에 기능 이름(export 등) → 거부
 // 판정 계약에는 메모 주인·강사 역할 칸이 없으므로(request.role 등은 만들지 않음), 강사 확인이 필요한 공지 수정은
 // 판정기에서 기본 거부하고, "남의 메모인지"는 자료 API가 저장된 owner_id로 다시 확인합니다.
@@ -24,8 +24,6 @@ const ZONE_ROUTES = Object.freeze({
   'GET /notes':        Object.freeze({ zone: 'zone_own_notes', allow: true, path: /^\/notes$/u }),
   'GET /notes/:id':    Object.freeze({ zone: 'zone_own_notes', allow: true, path: /^\/notes\/([A-Za-z0-9_-]{1,64})$/u }),
   'PUT /notes/:id':    Object.freeze({ zone: 'zone_own_notes', allow: true, path: /^\/notes\/([A-Za-z0-9_-]{1,64})$/u }),
-  'GET /notices':      Object.freeze({ zone: 'zone_instructor_notices', allow: true, path: /^\/notices$/u }),
-  'GET /notices/:id':  Object.freeze({ zone: 'zone_instructor_notices', allow: true, path: /^\/notices\/([A-Za-z0-9_-]{1,64})$/u }),
   'PUT /notices/:id':  Object.freeze({ zone: 'zone_instructor_notices', allow: false, reason: 'instructor_only',
     path: /^\/notices\/([A-Za-z0-9_-]{1,64})$/u }),
 });
