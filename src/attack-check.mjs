@@ -1,7 +1,7 @@
 // The student changes this check as each stage adds an attack to the same app.
 // Never return tokens, private keys, real names, or note bodies.
 export async function runAttackChecks(config) {
-  if (config.step >= 3 && config.step <= 6) return runStep3Checks(config);
+  if (config.step >= 3 && config.step <= 7) return runStep3Checks(config);
   if (config.step !== 1) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
   let app;
   try {
@@ -105,6 +105,25 @@ async function runStep3Checks(config) {
     } catch {
       results.push({ attackId: 'local_unregistered_device_read', expected: '로컬 판정기: 미등록 기기는 deny·device_not_registered',
         observed: '미실행: 로컬 판정기를 불러오지 못함' });
+    }
+    if (config.step >= 7) {
+      try {
+        const { decide } = await import('./decider.mjs');
+        const { fixtureRequests } = await import('../scripts/fixture-7.mjs');
+        const { suspicious } = fixtureRequests();
+        const before = await decide(suspicious);
+        const after = await decide({ ...suspicious, requestId: crypto.randomUUID(),
+          stepUp: { verified: true, authAgeSeconds: 60 } });
+        results.push({ attackId: 'local_composite_anomaly_step_up', expected: '로컬 판정기: 복합 이상 가상 사건은 step_up·step_up_required',
+          observed: `로컬 가상 요청 결과 ${before.decision} · ${before.reasonCode}` });
+        results.push({ attackId: 'local_step_up_verified_allow', expected: '로컬 판정기: 추가 확인을 마친 같은 사건은 allow',
+          observed: `로컬 가상 요청 결과 ${after.decision} · ${after.reasonCode}` });
+      } catch {
+        results.push({ attackId: 'local_composite_anomaly_step_up', expected: '로컬 판정기: 복합 이상 가상 사건은 step_up·step_up_required',
+          observed: '미실행: 로컬 판정기를 불러오지 못함' });
+      }
+      results.push({ attackId: 'relogin_block_then_allow', expected: '다시 로그인 전 자료 차단, 새 로그인 뒤 요청 허용',
+        observed: '미실행: 재로그인 시각을 검증하는 제공 엔진이 이 환경에 없음' });
     }
     results.push({ attackId: 'unregistered_device_relay', expected: '미등록 기기 인증서·인증서 없는 통로 요청은 거부',
       observed: '미실행: 운영 통로(mTLS) 요청은 심판이 보내며 자동 점검에서 요청하지 않음' });

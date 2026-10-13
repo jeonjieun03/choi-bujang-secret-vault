@@ -1,9 +1,9 @@
-# BYTE BACK 방어전 자료실 — 6단계 저장점
+# BYTE BACK 방어전 자료실 — 7단계 저장점
 
 이 저장소는 BYTE BACK 방어전 시작 틀 R5에서 출발한 학생 자료실입니다. 메모는 모두 실습용 가상 자료입니다. 실제 학생 자료, 토큰, 비밀키를 넣지 마세요.
 
 - 배포 주소: https://choi-bujang-secret-vault-opal.vercel.app
-- 현재 단계: 6단계(등록한 기기만 자료실에) 저장점
+- 현재 단계: 7단계(평소와 다른 접속은 다시 확인) 저장점
 
 ## 지금 작동하는 기능
 
@@ -13,6 +13,8 @@
 4. 메모 자료 요청은 서버 함수 `/api/notes` 한곳으로만 갑니다. 브라우저는 Supabase에 직접 요청하지 않습니다. DB의 `vault_notes`는 `PUBLIC`·`anon`·`authenticated` 직접 권한이 모두 회수되어, 공개 키나 로그인 토큰으로 원본 자료 API(`originalApiUrl`)를 직접 불러도 거부됩니다. 서버 함수만 서버 전용 키(service_role)로 접근합니다. RLS와 4단계 정책 4개(`auth.uid() = owner_id`)는 예비 방어로 남겨 둡니다.
 5. 정적 `/data.json`은 만들지 않습니다(404). 빌드는 `public/aleph.json`에 배포 저장소·커밋·주소·단계·`originalApiUrl`·`allowedRoutes`를 기록합니다. 모든 응답에 보안 헤더(`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`)가 붙습니다.
 6. 판정기 `src/decider.mjs`는 운영 엔진이 확인한 요청에서 `deviceRegistered`가 `true`일 때만 내 자료실 읽기(`GET notes`)를 허용합니다(`device_registered`). 미등록이거나 값이 없으면 `deny`·`device_not_registered`입니다. 그 밖의 요청은 시작 틀 기본 거부(`starter.deny`)입니다.
+7. 판정기는 엔진이 넘긴 접속 정보의 출처를 구분합니다(`readAccessContext`). 심판 가상 사건(`judge_fixture`)만 읽고, 실제 경로(`none`)나 그 밖의 출처(클라이언트 헤더 등)는 값을 모름(null)으로 둡니다. 빠진 값을 정상값으로 채우지 않습니다.
+8. 판정기 `step_up_required`: 가상 사건에서 평소와 다른 시각(7~22시 밖)·처음 보는 네트워크·갑작스러운 대량 요청(10분 안 10건 이상)·평소와 다른 지역 중 2개 이상이 겹치면 `step_up`으로 추가 확인을 요구하고 자료를 주지 않습니다. 신호 하나로는 막지 않고 영구 차단하지 않습니다. 300초 안에 추가 확인을 마친 요청은 다시 판정해 허용합니다. 겹친 사유는 `stepUpReasons()`로 확인합니다.
 
 | 경로 | 동작 |
 |---|---|
@@ -21,7 +23,7 @@
 | `GET /api/notes/:id` | 본인 메모면 `{id,title,body}`, 없거나 남의 것이면 404 |
 | `PUT /api/notes/:id` | `{title,body}` → `{id,title,body}`, 없거나 남의 것이면 404, 주인 변경 시도는 403 |
 | `DELETE /api/notes/:id` | 204, 없거나 남의 것이면 404 |
-| `POST /api/session` | `{action}` (login·refresh·logout) `` 로그인 세션 처리 |
+| `POST /api/session` | `{action}`(login·refresh·logout) 로그인 세션 처리 |
 
 ## 다시 실행하는 방법
 
@@ -44,6 +46,7 @@
 - 5단계: 브라우저의 메모 자료 요청이 모두 서버 함수 경유임을 확인(직접 호출 없음), `vault_notes`의 PUBLIC·anon·authenticated 직접 권한 회수, `originalApiUrl` 기록.
   - 5단계 가점: 배포 정보 `/aleph.json`에 `originalApiUrl`·`allowedRoutes` 기록, 보안 헤더 추가, 로그인을 `/api/session`으로 옮겨 화면에서 Supabase 공개 키 제거.
 - 6단계: 판정기에 `device_registered` 규칙 추가(등록 기기의 자료실 읽기만 허용, 미등록·값 없음은 `device_not_registered` 거부), `npm run decider:test` 확인 순서 기록.
+- 7단계: 접속 정보 출처 구분 입력 검사, `step_up_required` 규칙 추가(복합 이상 `step_up`, 추가 확인 뒤 `allow`), 재로그인 검증 계약 상태 기록(실제 자료 차단은 미실행).
 
 ## 6단계: 등록 기기 판정기 확인 순서
 
