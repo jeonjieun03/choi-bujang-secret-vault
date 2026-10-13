@@ -13,6 +13,7 @@
 // 8단계 구역 규칙: 엔진이 확인한 사용자(subjectId)·기기(deviceRegistered)·메서드·정확한 경로(route·path)로 구역을 나눕니다.
 //   zone_own_notes          GET /notes/:id, PUT /notes/:id → 메모 한 건 읽기·수정 허용 (주인 비교는 자료 API)
 //                           GET /notes(전체 목록)는 여러 사람 자료를 한꺼번에 여는 경로라 거부
+//                           POST /notes/:id/restore(10단계 복구 경로) → 자기 메모 한 건 복원 허용 (사본 검증은 자료 API)
 //   zone_instructor_notices PUT /notices/:id → instructor_only 거부 (학생에게 강사 구역은 다른 구역이라 공지 경로는 표에 없으면 모두 거부)
 //   route_allowlist         위 표에 없는 경로·메서드, 쿼리가 붙은 요청, :id 자리에 기능 이름(export 등) → 거부
 // 판정 계약에는 메모 주인·강사 역할 칸이 없으므로(request.role 등은 만들지 않음), 강사 확인이 필요한 공지 수정은
@@ -22,10 +23,14 @@ export const RULE_IDS = Object.freeze(['starter.deny', 'device_registered', 'ste
 
 // 정확한 경로 표: route(엔진이 확인한 경로 모양) → 구역·허용 여부. 표에 없으면 거부합니다.
 const NOTE_ONE = /^(?:\/api)?\/notes\/([A-Za-z0-9_-]{1,64})$/u;
+const NOTE_RESTORE = /^(?:\/api)?\/notes\/([A-Za-z0-9_-]{1,64})\/restore$/u;
 const ZONE_ROUTES = Object.freeze({
   // 메모 전체 목록(GET /notes)은 여러 사람의 자료를 한꺼번에 여는 경로라 표에 두지 않습니다(route_allowlist 로 거부).
   'GET /notes/:id':    Object.freeze({ zone: 'zone_own_notes', allow: true, path: NOTE_ONE }),
   'PUT /notes/:id':    Object.freeze({ zone: 'zone_own_notes', allow: true, path: NOTE_ONE }),
+  // 10단계: 제출한 복구 경로(restoreRoute). 자기 메모 한 건 복원만 통과시키고, 사본 검증·봉인·주인 비교는 자료 API(api/restore.js)가 합니다.
+  'POST /notes/:id/restore':     Object.freeze({ zone: 'zone_own_notes', allow: true, path: NOTE_RESTORE }),
+  'POST /api/notes/:id/restore': Object.freeze({ zone: 'zone_own_notes', allow: true, path: NOTE_RESTORE }),
   'PUT /notices/:id':  Object.freeze({ zone: 'zone_instructor_notices', allow: false, reason: 'instructor_only',
     path: /^(?:\/api)?\/notices\/([A-Za-z0-9_-]{1,64})$/u }),
 });
