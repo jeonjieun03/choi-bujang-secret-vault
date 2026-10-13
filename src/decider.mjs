@@ -47,6 +47,20 @@ function isResourceId(value) {
   return SHORT_ID.test(value) && !FUNCTION_WORDS.has(value);
 }
 
+// 자기 메모 주인 기억(보조 규칙): 판정 계약에는 메모 주인 칸이 없으므로, 같은 판정기 실행 안에서
+// 엔진이 확인한 subjectId 가 처음 읽거나 고친 메모(정확한 path)의 주인을 기억하고, 다른 subjectId 의
+// 같은 메모 요청은 거부합니다. 최종 주인 확인은 자료 API 가 저장된 owner_id 로 다시 합니다.
+// 기억은 이 실행의 메모리에만 있고(파일·네트워크 사용 없음), 오래된 것부터 지워 크기를 제한합니다.
+const NOTE_OWNERS = new Map();
+const NOTE_OWNERS_MAX = 10_000;
+function rememberedOwner(resourceKey, subjectId) {
+  const owner = NOTE_OWNERS.get(resourceKey);
+  if (owner !== undefined) return owner;
+  if (NOTE_OWNERS.size >= NOTE_OWNERS_MAX) NOTE_OWNERS.delete(NOTE_OWNERS.keys().next().value);
+  NOTE_OWNERS.set(resourceKey, subjectId);
+  return subjectId;
+}
+
 // 요청이 어느 구역의 어떤 경로인지 정확히 맞춰 봅니다. 맞지 않으면 null.
 // 내 자료실 서비스. 엔진이 확인한 service 가 이것이 아니면(다른 구역·다른 서비스) 경로 모양이 같아도 거부합니다.
 const VAULT_SERVICE = 'notes';
@@ -60,7 +74,7 @@ export function matchZoneRoute(request) {
   const m = typeof request.path === 'string' ? entry.path.exec(request.path) : null;
   if (!m) return null;
   if (m[1] !== undefined && !isResourceId(m[1])) return null;
-  return { route, ...entry };
+  return { route, id: m[1] ?? null, ...entry };
 }
 
 // 7단계 입력 검사: 엔진이 넘긴 접속 정보(request.signals, request.recentEvents)의 출처를 구분합니다.
@@ -167,6 +181,13 @@ export async function decide(request) {
   }
   if (!zone.allow) {
     return { ...base, decision: 'deny', reasonCode: zone.reason, ruleIds: [zone.zone] };
+  }
+  // 자기 메모 한 건 읽기·수정: 기억된 주인과 다른 사람이면 거부
+  if (zone.zone === 'zone_own_notes' && zone.id !== null) {
+    const owner = rememberedOwner(`note:${zone.id}`, request.subjectId);
+    if (owner !== request.subjectId) {
+      return { ...base, decision: 'deny', reasonCode: 'not_resource_owner', ruleIds: ['zone_own_notes'] };
+    }
   }
   return { ...base, decision: 'allow', reasonCode: 'approved', ruleIds: ['device_registered', zone.zone] };
 
