@@ -1,7 +1,7 @@
 // The student changes this check as each stage adds an attack to the same app.
 // Never return tokens, private keys, real names, or note bodies.
 export async function runAttackChecks(config) {
-  if (config.step >= 3 && config.step <= 7) return runStep3Checks(config);
+  if (config.step >= 3 && config.step <= 8) return runStep3Checks(config);
   if (config.step !== 1) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
   let app;
   try {
@@ -124,6 +124,29 @@ async function runStep3Checks(config) {
       }
       results.push({ attackId: 'relogin_block_then_allow', expected: '다시 로그인 전 자료 차단, 새 로그인 뒤 요청 허용',
         observed: '미실행: 재로그인 시각을 검증하는 제공 엔진이 이 환경에 없음' });
+    }
+    if (config.step >= 8) {
+      try {
+        const { decide } = await import('./decider.mjs');
+        const { fixtureRequests } = await import('../scripts/fixture-7.mjs');
+        const { normal } = fixtureRequests();
+        const id = '11111111-2222-4333-8444-555555555555';
+        const ask = (method, route, path, extra = {}) => decide({ ...normal, requestId: crypto.randomUUID(), method, route, path, ...extra });
+        const own = await ask('PUT', 'PUT /notes/:id', `/notes/${id}`);
+        const notice = await ask('PUT', 'PUT /notices/:id', `/notices/${id}`);
+        const unknown = await ask('GET', 'GET /notes/:id', '/notes/export');
+        results.push({ attackId: 'local_zone_own_note_update', expected: '로컬 판정기: 자기 메모 수정 경로는 allow',
+          observed: `로컬 가상 요청 결과 ${own.decision} · ${own.reasonCode}` });
+        results.push({ attackId: 'local_zone_student_notice_update', expected: '로컬 판정기: 학생의 공지 수정은 deny·instructor_only',
+          observed: `로컬 가상 요청 결과 ${notice.decision} · ${notice.reasonCode}` });
+        results.push({ attackId: 'local_zone_function_path', expected: '로컬 판정기: :id 자리의 기능 경로(export)는 deny·route_not_allowed',
+          observed: `로컬 가상 요청 결과 ${unknown.decision} · ${unknown.reasonCode}` });
+      } catch {
+        results.push({ attackId: 'local_zone_student_notice_update', expected: '로컬 판정기: 학생의 공지 수정은 deny·instructor_only',
+          observed: '미실행: 로컬 판정기를 불러오지 못함' });
+      }
+      results.push({ attackId: 'cross_zone_api_requests', expected: '다른 구역 메모 조회·수정·목록과 학생의 공지 수정은 자료 API에서 404·403',
+        observed: '미실행: A·B 로그인 토큰이 필요해 자동 점검에서 요청하지 않음' });
     }
     results.push({ attackId: 'unregistered_device_relay', expected: '미등록 기기 인증서·인증서 없는 통로 요청은 거부',
       observed: '미실행: 운영 통로(mTLS) 요청은 심판이 보내며 자동 점검에서 요청하지 않음' });
