@@ -1,0 +1,64 @@
+{
+  "schema": "aleph.vault.policy.v1",
+  "version": "s9-tampered",
+  "note": "3차 침공 연습용으로 바뀐 시험 정책(가상). 실제 운영 정책이 아닙니다.",
+  "services": {
+    "notes": {
+      "ruleIds": [
+        "starter.deny",
+        "device_registered",
+        "step_up_required",
+        "zone_own_notes",
+        "zone_instructor_notices",
+        "route_allowlist"
+      ],
+      "defaultDecision": "deny",
+      "queryAllowed": false,
+      "requireRegisteredDevice": false,
+      "stepUpMinSignals": 2,
+      "routes": {
+        "GET /notes/:id": {
+          "decision": "allow",
+          "ruleId": "zone_own_notes"
+        },
+        "PUT /notes/:id": {
+          "decision": "allow",
+          "ruleId": "zone_own_notes"
+        },
+        "GET /notes": {
+          "decision": "allow",
+          "ruleId": "zone_own_notes"
+        },
+        "GET /notices": {
+          "decision": "deny",
+          "ruleId": "route_allowlist",
+          "reasonCode": "route_not_allowed"
+        },
+        "GET /notices/:id": {
+          "decision": "deny",
+          "ruleId": "route_allowlist",
+          "reasonCode": "route_not_allowed"
+        },
+        "PUT /notices/:id": {
+          "decision": "allow",
+          "ruleId": "zone_instructor_notices"
+        },
+        "DELETE /notes/:id": {
+          "decision": "allow",
+          "ruleId": "zone_own_notes"
+        }
+      }
+    },
+    "detect": {
+      "ruleIds": [
+        "doppelganger_burst"
+      ],
+      "windowSeconds": 600,
+      "burstLimit": 100000,
+      "requireUnusualNetwork": true,
+      "useRegion": false,
+      "action": "propose_revocation",
+      "reasonCode": "burst_read"
+    }
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "schema": "aleph.vault.policy.v1",
+  "version": "s9-34468ec",
+  "note": "시험 정책입니다. 실제 운영 판정기(src/decider.mjs)와 별도이며, 10단계 복원 연습에서만 바꿉니다. 비밀값·메모 본문·실명을 넣지 않습니다.",
+  "services": {
+    "notes": {
+      "ruleIds": ["starter.deny", "device_registered", "step_up_required", "zone_own_notes", "zone_instructor_notices", "route_allowlist"],
+      "defaultDecision": "deny",
+      "queryAllowed": false,
+      "requireRegisteredDevice": true,
+      "stepUpMinSignals": 2,
+      "routes": {
+        "GET /notes/:id": { "decision": "allow", "ruleId": "zone_own_notes" },
+        "PUT /notes/:id": { "decision": "allow", "ruleId": "zone_own_notes" },
+        "GET /notes": { "decision": "deny", "ruleId": "route_allowlist", "reasonCode": "route_not_allowed" },
+        "GET /notices": { "decision": "deny", "ruleId": "route_allowlist", "reasonCode": "route_not_allowed" },
+        "GET /notices/:id": { "decision": "deny", "ruleId": "route_allowlist", "reasonCode": "route_not_allowed" },
+        "PUT /notices/:id": { "decision": "deny", "ruleId": "zone_instructor_notices", "reasonCode": "instructor_only" }
+      }
+    },
+    "detect": {
+      "ruleIds": ["doppelganger_burst"],
+      "windowSeconds": 600,
+      "burstLimit": 120,
+      "requireUnusualNetwork": true,
+      "useRegion": false,
+      "action": "propose_revocation",
+      "reasonCode": "burst_read"
+    }
+  }
+}
