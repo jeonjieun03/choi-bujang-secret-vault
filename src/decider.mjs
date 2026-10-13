@@ -5,7 +5,11 @@
 // 6단계 device_registered: 엔진이 확인한 요청의 deviceRegistered 가 true 일 때만
 // 내 자료실(notes) 읽기(GET)를 허용합니다. 미등록이거나 값이 없으면 device_not_registered 로 거부합니다.
 // 계약(docs/DECIDER_REQUEST.md)에 있는 값(subjectId, deviceRegistered, service, method, route)만 씁니다.
-export const RULE_IDS = Object.freeze(['starter.deny', 'device_registered']);
+//
+// 7단계 step_up_required: 심판이 보낸 가상 접속 사건(judge_fixture)에서 평소와 다른 신호가 2개 이상 겹치면
+// (평소와 다른 시각 · 처음 보는 네트워크 · 갑자기 많은 자료 요청 · 평소와 다른 지역) 추가 본인 확인(step_up)을 요구합니다.
+// 신호 하나(지역만, 시각만 등)로는 막지 않으며, 영구 차단(deny)하지 않습니다. 최근에 추가 확인을 마친 요청은 다시 판정해 허용합니다.
+export const RULE_IDS = Object.freeze(['starter.deny', 'device_registered', 'step_up_required']);
 
 const NOTES_READ_ROUTES = new Set(['GET /notes', 'GET /notes/:id']);
 
@@ -60,6 +64,31 @@ export function readAccessContext(request) {
   });
 }
 
+// 평소 범위: 접속 시각 07~22시, 네트워크 'usual', 지역 'local'. 값이 없으면(null) 이상으로도 정상으로도 세지 않습니다.
+const USUAL_HOURS = Object.freeze({ from: 7, to: 22 });
+const BULK_COUNT = 10;          // 최근 사건 한 건에 이만큼 이상이면 "갑자기 많은 요청"
+const BULK_WINDOW_SECONDS = 600;
+const STEP_UP_MIN_SIGNALS = 2;
+const STEP_UP_FRESH_SECONDS = 300; // 이 시간 안에 추가 확인을 마쳤으면 다시 묻지 않음
+
+// 가상 사건에서 평소와 다른 신호 이름을 모읍니다(사유 기록용). 응답 다섯 항목은 바꾸지 않습니다.
+export function stepUpReasons(request) {
+  const ctx = readAccessContext(request);
+  if (ctx.source !== 'judge_fixture') return [];
+  const reasons = [];
+  if (ctx.hour !== null && (ctx.hour < USUAL_HOURS.from || ctx.hour > USUAL_HOURS.to)) reasons.push('unusual_hour');
+  if (ctx.network !== null && ctx.network !== 'usual') reasons.push('new_network');
+  if (ctx.events.some(e => e.count >= BULK_COUNT && e.ageSeconds <= BULK_WINDOW_SECONDS)) reasons.push('bulk_activity');
+  if (ctx.region !== null && ctx.region !== 'local') reasons.push('unusual_region');
+  return reasons;
+}
+
+function recentlyStepUpVerified(request) {
+  const s = request?.stepUp;
+  return Boolean(s) && typeof s === 'object' && s.verified === true
+    && Number.isInteger(s.authAgeSeconds) && s.authAgeSeconds >= 0 && s.authAgeSeconds <= STEP_UP_FRESH_SECONDS;
+}
+
 function isNotesRead(request) {
   return request.service === 'notes' && request.method === 'GET'
     && (typeof request.route !== 'string' || NOTES_READ_ROUTES.has(request.route));
@@ -71,6 +100,11 @@ export async function decide(request) {
   // device_registered: 등록 기기가 아니면(false·값 없음·true 가 아닌 모든 값) 거부
   if (request?.deviceRegistered !== true) {
     return { ...base, decision: 'deny', reasonCode: 'device_not_registered', ruleIds: ['device_registered'] };
+  }
+
+  // step_up_required: 평소와 다른 신호가 겹치는 가상 사건은 최근 추가 확인 전까지 자료를 주지 않고 추가 확인 요구
+  if (stepUpReasons(request).length >= STEP_UP_MIN_SIGNALS && !recentlyStepUpVerified(request)) {
+    return { ...base, decision: 'step_up', reasonCode: 'step_up_required', ruleIds: ['step_up_required'] };
   }
 
   // 등록 기기 + 엔진이 확인한 로그인 주체 + 내 자료실 읽기 → 허용
