@@ -48,7 +48,7 @@ function isResourceId(value) {
 }
 
 // 자기 메모 주인 기억(보조 규칙): 판정 계약에는 메모 주인 칸이 없으므로, 같은 판정기 실행 안에서
-// 엔진이 확인한 subjectId 가 처음 읽거나 고친 메모(정확한 path)의 주인을 기억하고, 다른 subjectId 의
+// 엔진이 확인한 subjectId·deviceId 가 처음 읽거나 고친 메모(정확한 path)의 주인을 기억하고, 다른 사용자·기기의
 // 같은 메모 요청은 거부합니다. 최종 주인 확인은 자료 API 가 저장된 owner_id 로 다시 합니다.
 // 기억은 이 실행의 메모리에만 있고(파일·네트워크 사용 없음), 오래된 것부터 지워 크기를 제한합니다.
 const NOTE_OWNERS = new Map();
@@ -199,8 +199,10 @@ export async function decide(request) {
   }
   // 자기 메모 한 건 읽기·수정: 기억된 주인과 다른 사람이면 거부
   if (zone.zone === 'zone_own_notes' && zone.id !== null) {
-    const owner = rememberedOwner(`note:${zone.id}`, request.subjectId);
-    if (owner !== request.subjectId) {
+    // 주인은 엔진이 확인한 사용자와 기기를 함께 묶어 기억합니다(같은 사람이라도 다른 기기면 다른 주체).
+    const requester = `${request.subjectId}|${typeof request.deviceId === 'string' ? request.deviceId : ''}`;
+    const owner = rememberedOwner(`note:${zone.id}`, requester);
+    if (owner !== requester) {
       return { ...base, decision: 'deny', reasonCode: 'not_resource_owner', ruleIds: ['zone_own_notes'] };
     }
   }
