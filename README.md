@@ -34,6 +34,22 @@
 | `PUT /api/notices/:id` | `{title,body}` → `{id,title,body}`, 강사 명단에 없으면 403 |
 | `POST /api/notes/:id/restore` | (10단계) 비공개 사본에서 내 메모 한 건만 복원. 본문 `{"preview":true}`면 검증 결과·사본 버전·바뀔 항목만 보여 주고 쓰지 않음, `{"expectBackupSha256":…}`면 미리 본 사본과 같을 때만 실행 → 200 `{id,title,body,restored:{…}}`. 사본 없음·남의 메모 404, 사본 검증 실패 409, 실행 뒤 대조 실패는 되돌리고 502 |
 
+## 10단계: 안전 정책(RLS) 사본 검증·차이 보기·되돌리기 (Supabase SQL)
+
+3차 침공은 가상 메모와 함께 DB의 안전 정책(`public.vault_notes`의 RLS와 4단계 정책 4개 `auth.uid() = owner_id`)을 바꿉니다. 정책 복원은 DB 안에서 합니다(`supabase/step10_policy_backup.sql`).
+
+| 함수 | 하는 일 |
+|---|---|
+| `vault_policy_capture('s4-rls-v1')` | 지금 정책이 4단계 안전 기준(RLS 켜짐, 정책 4개, 모두 `auth.uid()`·`owner_id` 비교, authenticated 전용)과 같을 때만 침해 전 사본을 `vault_policy_backup`에 남김(SHA-256 함께). 기준과 다르면 사본을 만들지 않음 |
+| `vault_policy_backup_verify(버전)` | 사본을 다시 읽어 SHA-256을 다시 계산·대조. 사본이 없거나 다르면 예외로 멈춤 |
+| `vault_policy_diff(버전)` | 검증된 사본과 지금 정책의 **차이만** 보여 줌(읽기 전용, 아무것도 바꾸지 않음) |
+| `vault_policy_restore(버전, false)` | 복원할 **버전과 바뀔 항목**만 보여 줌(미리 보기) |
+| `vault_policy_restore(버전, true)` | 사본을 다시 읽어 검증 → `vault_notes` 정책만 사본대로 되돌림 → 다시 읽어 사본과 대조, 다르면 예외로 전체 취소. 사본 없음·검증 실패면 아무것도 바꾸지 않고 멈춤(감사 기록만) |
+
+- 다른 표의 정책, 사본, 감사 기록(`vault_policy_audit`, 추가만 가능)은 건드리지 않습니다. 함수는 서버 전용 역할만 실행할 수 있습니다.
+- 복원 시험: `supabase/step10_policy_restore_test.sql`이 정책을 침공처럼 바꾼 뒤(모두 읽기 정책 추가·본인 수정 정책 삭제) 미리 보기 → 복원 → **B 로그인으로 A 메모 0건(거부), A 로그인으로 자기 메모 보임(정상 유지)**을 확인하고 결과를 `vault_policy_audit`에 `policy_restore_test / pass`로 남깁니다. 실패하면 전부 취소됩니다.
+- `policy/`·`backup/policy/`의 JSON 정책 사본과 `npm run policy:diff`·`policy:restore`·`backup:verify`는 판정기 경로 규칙의 로컬 연습용입니다.
+
 ## 10단계: 메모 한 건 복원 (서비스·경로)
 
 - 서비스: 자료 API 서비스 `notes`의 복원 함수 `api/restore.js` (Vercel 서버 함수)
@@ -79,7 +95,7 @@
 
 ## 다시 실행하는 방법
 
-1. 학습용 Supabase SQL Editor에서 2단계 이전 SQL과 4단계 B 시험 메모 SQL(둘 다 메모 문장이 있어 저장소 밖 보관), `supabase/step3_notes_crud.sql`, `supabase/step4_rls_policies.sql`, `supabase/step5_revoke_direct_access.sql`, `supabase/step8_notices.sql`, `supabase/step8_instructors.sql`, `supabase/step10_note_backup.sql`, `supabase/step10_backup_seal.sql`, `supabase/step10_restore_function.sql`을 차례로 실행합니다. 이메일 자리는 실행할 때만 바꾸고 파일에는 저장하지 않습니다. A·B 시험 계정은 Authentication → Users에서 만듭니다.
+1. 학습용 Supabase SQL Editor에서 2단계 이전 SQL과 4단계 B 시험 메모 SQL(둘 다 메모 문장이 있어 저장소 밖 보관), `supabase/step3_notes_crud.sql`, `supabase/step4_rls_policies.sql`, `supabase/step5_revoke_direct_access.sql`, `supabase/step8_notices.sql`, `supabase/step8_instructors.sql`, `supabase/step10_note_backup.sql`, `supabase/step10_backup_seal.sql`, `supabase/step10_restore_function.sql`, `supabase/step10_policy_backup.sql`, `supabase/step10_policy_restore_test.sql`을 차례로 실행합니다. 이메일 자리는 실행할 때만 바꾸고 파일에는 저장하지 않습니다. A·B 시험 계정은 Authentication → Users에서 만듭니다.
 2. Vercel 프로젝트 **Settings → Environment Variables**(Production)에 `SUPABASE_URL`과 서버 전용 `SUPABASE_SECRET_KEY`를 학생이 직접 넣습니다. 키 값은 코드·Git·채팅에 적지 않습니다.
 3. main에 푸시하거나 Deployments에서 Redeploy 합니다.
 4. 로컬 확인: `npm run build -- --local`, `npm run test:r5`, `npm run decider:test`, `npm run detect:test`(가상 사건 연습이며 심판 판정이 아님). 제출 묶음: `bundle-notes.json`을 만든 뒤 `npm run bundle`(결과 `artifacts/submission.json`, 둘 다 커밋하지 않음).
