@@ -1,7 +1,7 @@
 // The student changes this check as each stage adds an attack to the same app.
 // Never return tokens, private keys, real names, or note bodies.
 export async function runAttackChecks(config) {
-  if (config.step >= 3 && config.step <= 8) return runStep3Checks(config);
+  if (config.step >= 3 && config.step <= 9) return runStep3Checks(config);
   if (config.step !== 1) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
   let app;
   try {
@@ -122,7 +122,8 @@ async function runStep3Checks(config) {
         results.push({ attackId: 'local_composite_anomaly_step_up', expected: '로컬 판정기: 복합 이상 가상 사건은 step_up·step_up_required',
           observed: '미실행: 로컬 판정기를 불러오지 못함' });
       }
-      results.push({ attackId: 'relogin_block_then_allow', expected: '다시 로그인 전 자료 차단, 새 로그인 뒤 요청 허용',
+      // 9단계부터는 점검 20개 이내를 지키려고 미실행 표시만 하던 이 항목을 뺍니다.
+      if (config.step < 9) results.push({ attackId: 'relogin_block_then_allow', expected: '다시 로그인 전 자료 차단, 새 로그인 뒤 요청 허용',
         observed: '미실행: 재로그인 시각을 검증하는 제공 엔진이 이 환경에 없음' });
     }
     if (config.step >= 8) {
@@ -148,8 +149,30 @@ async function runStep3Checks(config) {
       results.push({ attackId: 'cross_zone_api_requests', expected: '다른 구역 메모 조회·수정·목록과 학생의 공지 수정은 자료 API에서 404·403',
         observed: '미실행: A·B 로그인 토큰이 필요해 자동 점검에서 요청하지 않음' });
     }
-    results.push({ attackId: 'unregistered_device_relay', expected: '미등록 기기 인증서·인증서 없는 통로 요청은 거부',
-      observed: '미실행: 운영 통로(mTLS) 요청은 심판이 보내며 자동 점검에서 요청하지 않음' });
+    if (config.step >= 9) {
+      // 9단계: 로컬 탐지기에 가상 사건만 넣어 본 결과입니다. 실제 회수·경과 시간은 심판이 확인합니다.
+      try {
+        const { detect, revocationProposal } = await import('./detect.mjs');
+        const start = Date.UTC(2026, 9, 1, 10, 0, 0);
+        const reads = (count, { device, network, offset = 0 }) => Array.from({ length: count }, (_, i) => ({
+          at: new Date(start + offset + i * 2000).toISOString(), method: 'GET',
+          identity: { sub: 'learner_fixture' }, deviceId: device, network }));
+        const normal = reads(30, { device: 'a'.repeat(16), network: 'usual' });
+        const composite = [...normal, ...reads(150, { device: 'b'.repeat(16), network: 'new_network', offset: 1000 })];
+        const kept = detect(normal);
+        const revoke = revocationProposal(composite);
+        results.push({ attackId: 'local_detect_normal_kept', expected: '로컬 탐지기: 평소 네트워크 정상 조회 30건은 observe(회수 제안 없음)',
+          observed: `로컬 가상 사건 결과 ${kept.action}` });
+        results.push({ attackId: 'local_detect_composite_revoke', expected: '로컬 탐지기: 새 네트워크+10분 안 다량 조회는 기기 한 개 대상 propose_revocation·burst_read',
+          observed: `로컬 가상 사건 결과 ${revoke.action} · ${revoke.reasonCode ?? '-'} · 대상 기기 ${revoke.deviceId === 'b'.repeat(16) ? '새 네트워크 기기 1개' : '확인 필요'}` });
+      } catch {
+        results.push({ attackId: 'local_detect_composite_revoke', expected: '로컬 탐지기: 복합 의심 사건은 propose_revocation',
+          observed: '미실행: 로컬 탐지기를 불러오지 못함' });
+      }
+    } else {
+      results.push({ attackId: 'unregistered_device_relay', expected: '미등록 기기 인증서·인증서 없는 통로 요청은 거부',
+        observed: '미실행: 운영 통로(mTLS) 요청은 심판이 보내며 자동 점검에서 요청하지 않음' });
+    }
   }
   if (config.step >= 5) {
     // 원본 자료 API를 공개(publishable) 키로 직접 요청: 권한이 없어 거부되어야 합니다.
