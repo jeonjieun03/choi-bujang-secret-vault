@@ -66,6 +66,11 @@
       <small id="device-detail">서버가 아직 이 기기를 등록 기기로 확인하지 않았습니다.</small>
       <small id="install-state">실행 형태: 브라우저 탭</small>
       <small>앱으로 설치했다는 표시만으로는 기기 확인이 끝나지 않습니다. 기기 승인 여부는 서버와 판정기가 정합니다.</small>
+      <div id="device-actions" class="row" hidden>
+        <button id="device-unlock" class="btn" type="button">승인 확인하고 자료실 열기</button>
+        <button id="device-request" class="btn ghost" type="button">이 기기 승인 요청</button>
+      </div>
+      <p id="device-msg" role="status" hidden></p>
     </section>
     <p>아래 기록은 모두 실습을 위해 만든 가상 자료입니다.</p>
 
@@ -121,6 +126,24 @@
     function showOnlineState() {
       document.querySelector('#offline-banner').hidden = navigator.onLine !== false;
     }
+    // 기기 승인 상태: 서버(기기 명단)와 판정기가 정한 결과만 표시합니다.
+    function showDeviceState(result) {
+      const approved = result?.approved === true;
+      const status = result?.status;
+      document.querySelector('#device-state').textContent = approved ? '서버가 승인한 기기'
+        : status === 'pending' ? '승인 대기 중' : status === 'revoked' ? '승인 취소된 기기' : '승인 확인 전';
+      document.querySelector('#device-state').style.background = approved ? '#1f5a4f' : '';
+      document.querySelector('#device-detail').textContent = approved
+        ? '서버가 이 기기를 등록 기기로 확인했고 판정기가 허용했습니다. 이 화면을 닫으면 다시 확인합니다.'
+        : status === 'pending'
+          ? '승인 요청이 서버 명단에 대기 중입니다. 서버 쪽에서 승인된 뒤 "승인 확인하고 자료실 열기"를 누르세요.'
+          : '서버가 아직 이 기기를 등록 기기로 확인하지 않았습니다. 승인 전에는 자료를 보여 주지 않습니다.';
+    }
+    function showDeviceMessage(text) {
+      const box = document.querySelector('#device-msg');
+      box.textContent = text;
+      box.hidden = !text;
+    }
     showInstallState();
     showOnlineState();
     window.addEventListener('online', showOnlineState);
@@ -143,7 +166,9 @@
       signedIn.hidden = !user;
       $('#who-email').textContent = user?.email ?? '';
       currentSession = session ?? null;
-      editor.hidden = !user;
+      if (!user) { device = null; showDeviceState(null); showDeviceMessage(''); }
+      document.querySelector('#device-actions').hidden = !user;
+      editor.hidden = !(user && device);
       if (!user) showNoteError('');
       loadNotes();
     }
@@ -167,6 +192,70 @@
     const editor = $('#editor');
     const noteError = $('#note-error');
     let currentSession = null;
+
+    // ── 11단계: 기기 승인 요청과 확인 ──
+    // 기기 열쇠는 패스키(운영체제가 보관)라서 브라우저 저장소에 넣지 않습니다. 서버에는 공개키만 보냅니다.
+    // "승인 요청"은 서버 명단에 대기로 올릴 뿐이고, "승인 확인"에서 서버가 패스키·명단을 확인하고 판정기가 허용해야
+    // 기기 세션(이 화면 메모리에만 있음)을 받습니다. 세션이 없으면 보호 자료를 요청하지도, 보여 주지도 않습니다.
+    let device = null; // { sessionId, deviceId, expiresAt }
+    const textEncoder = new TextEncoder();
+    const toB64u = buffer => btoa(String.fromCharCode(...new Uint8Array(buffer))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/u, '');
+    const DEVICE_REASONS = {
+      CHALLENGE_INVALID: '확인 문구가 만료됐습니다. 다시 눌러 주세요.', DEVICE_ALREADY_REGISTERED: '이 기기는 이미 승인 요청이 등록돼 있습니다. "승인 확인하고 자료실 열기"를 눌러 주세요.',
+      DEVICE_UNKNOWN: '서버 명단에 없는 기기 열쇠입니다. 먼저 "이 기기 승인 요청"을 눌러 주세요.',
+      DEVICE_PROOF_INVALID: '기기 확인에 실패했습니다.', DEVICE_UNAVAILABLE: '지금은 기기 확인을 할 수 없습니다.',
+    };
+    async function deviceCall(payload) {
+      const token = currentSession?.access_token;
+      if (!token) throw new Error('로그인이 필요합니다.');
+      const response = await fetch('/api/device', { method: 'POST', cache: 'no-store',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(DEVICE_REASONS[data?.error] ?? '기기 확인 요청을 처리하지 못했습니다.');
+      return data;
+    }
+    async function requestDeviceApproval() {
+      if (!window.PublicKeyCredential) throw new Error('이 브라우저는 기기 열쇠(패스키)를 지원하지 않습니다.');
+      const { challenge, rpId, user } = await deviceCall({ action: 'challenge', purpose: 'register' });
+      const credential = await navigator.credentials.create({ publicKey: {
+        challenge: textEncoder.encode(challenge), rp: { id: rpId, name: '내 자료실' },
+        user: { id: textEncoder.encode(user.handle), name: user.name, displayName: '내 자료실 기기' },
+        pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
+        authenticatorSelection: { residentKey: 'required', userVerification: 'preferred' }, attestation: 'none', timeout: 60000 } });
+      const r = credential.response;
+      const spki = typeof r.getPublicKey === 'function' ? r.getPublicKey() : null;
+      if (!spki) throw new Error('이 브라우저는 기기 공개키를 내보내지 못합니다. 최신 크롬·엣지·사파리를 써 주세요.');
+      const result = await deviceCall({ action: 'register', challenge, credentialId: toB64u(credential.rawId),
+        publicKeySpki: toB64u(spki), publicKeyAlgorithm: r.getPublicKeyAlgorithm(), clientDataJSON: toB64u(r.clientDataJSON) });
+      showDeviceState(result);
+      showDeviceMessage(`승인 요청을 보냈습니다(기기 ${result.deviceId}). 아직 승인되지 않았습니다.`);
+    }
+    async function unlockDevice() {
+      if (!window.PublicKeyCredential) throw new Error('이 브라우저는 기기 열쇠(패스키)를 지원하지 않습니다.');
+      const { challenge, rpId } = await deviceCall({ action: 'challenge', purpose: 'unlock' });
+      const assertion = await navigator.credentials.get({ publicKey: {
+        challenge: textEncoder.encode(challenge), rpId, userVerification: 'preferred', timeout: 60000 } });
+      const a = assertion.response;
+      const result = await deviceCall({ action: 'unlock', challenge, credentialId: toB64u(assertion.rawId),
+        authenticatorData: toB64u(a.authenticatorData), clientDataJSON: toB64u(a.clientDataJSON), signature: toB64u(a.signature) });
+      showDeviceState(result);
+      if (result.approved && result.sessionId) {
+        device = { sessionId: result.sessionId, deviceId: result.deviceId, expiresAt: result.expiresAt };
+        showDeviceMessage('');
+      } else {
+        device = null;
+        showDeviceMessage(`판정기 결과: ${result.decision ?? 'deny'} (${result.reasonCode ?? '-'}). 승인 전에는 자료를 보여 주지 않습니다.`);
+      }
+      render(currentSession);
+    }
+    document.querySelector('#device-request').addEventListener('click', async () => {
+      showDeviceMessage('');
+      try { await requestDeviceApproval(); } catch (error) { showDeviceMessage(error?.name === 'NotAllowedError' ? '기기 열쇠 만들기가 취소됐습니다.' : error.message); }
+    });
+    document.querySelector('#device-unlock').addEventListener('click', async () => {
+      showDeviceMessage('');
+      try { await unlockDevice(); } catch (error) { showDeviceMessage(error?.name === 'NotAllowedError' ? '기기 확인이 취소됐거나 이 기기에 등록된 열쇠가 없습니다.' : error.message); }
+    });
     let loadSeq = 0;
 
     function showNoteError(message) {
@@ -184,6 +273,8 @@
       return node;
     }
     const REASONS = {
+      DEVICE_APPROVAL_REQUIRED: '기기 승인 확인이 필요합니다. "승인 확인하고 자료실 열기"를 눌러 주세요.',
+      DEVICE_NOT_APPROVED: '서버가 승인하지 않은 기기입니다.', DEVICE_CHECK_UNAVAILABLE: '지금은 기기 확인을 할 수 없습니다.',
       LOGIN_REQUIRED: '로그인이 필요합니다.', INVALID_LOGIN: '로그인 확인에 실패했습니다. 다시 로그인하세요.',
       INVALID_NOTE: '제목과 내용을 입력하세요(제목 120자, 내용 2000자 이내).', INVALID_ID: '메모 ID 형식이 맞지 않습니다.',
       NOT_FOUND: '메모를 찾을 수 없습니다. 이미 지워졌거나 내 메모가 아닙니다.', OWNER_CHANGE_FORBIDDEN: '메모 주인은 바꿀 수 없습니다.', ID_ALREADY_EXISTS: '같은 ID의 메모가 이미 있습니다.',
@@ -194,7 +285,8 @@
       if (!retried && sessionExpiresSoon(currentSession)) await refreshSession();
       const token = currentSession?.access_token;
       if (!token) throw new Error(REASONS.LOGIN_REQUIRED);
-      const headers = { Authorization: `Bearer ${token}` };
+      if (!device || Date.parse(device.expiresAt) <= Date.now()) { device = null; throw new Error(REASONS.DEVICE_APPROVAL_REQUIRED); }
+      const headers = { Authorization: `Bearer ${token}`, 'X-Device-Session': device.sessionId };
       if (body !== undefined) headers['Content-Type'] = 'application/json';
       const response = await fetch(path, {
         method, headers, cache: 'no-store', body: body === undefined ? undefined : JSON.stringify(body),
@@ -287,6 +379,11 @@
       const seq = ++loadSeq;
       if (!currentSession?.access_token) {
         showListMessage('로그인하면 가상 자료를 볼 수 있습니다.');
+        return;
+      }
+      if (!device) {
+        // 승인 전: 보호 자료 요청을 보내지 않고 아무 자료도 보여 주지 않습니다.
+        showListMessage('기기 승인 전에는 자료를 표시하지 않습니다. 위의 "이 기기 승인 상태"에서 승인을 확인해 주세요.');
         return;
       }
       showListMessage('가상 자료를 불러오는 중입니다.');

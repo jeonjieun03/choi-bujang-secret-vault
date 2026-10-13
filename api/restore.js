@@ -6,6 +6,7 @@ import { ownerKeyOf } from '../src/owner-key.mjs';
 import { logAuthReject } from '../src/auth-log.mjs';
 import { noteContentSha256 } from '../src/note-hash.mjs';
 import { sealMatches } from '../src/backup-seal.mjs';
+import { requireApprovedDevice } from '../src/device-guard.mjs';
 
 const require = createRequire(import.meta.url);
 const config = require('../aleph.config.json');
@@ -95,6 +96,9 @@ export default async function handler(request, response) {
   const client = createClient(url, secretKey, {
     auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
   });
+  // 11단계: 승인된 기기 세션이 있을 때만 복원합니다.
+  const deviceCheck = await requireApprovedDevice({ client, request, ownerId });
+  if (!deviceCheck.ok) return fail(response, deviceCheck.status, deviceCheck.error);
   const audit = async row => {
     const { error } = await client.from('vault_restore_audit').insert({ note_id: id, owner_id: ownerId, action: 'restore_note', ...row });
     if (error) console.error('restore: 감사 기록 실패', error.code ?? 'unknown');
