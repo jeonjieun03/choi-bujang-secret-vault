@@ -10,13 +10,8 @@
     "jwksUrl": "https://rdcumwwanpqiqyzzuquw.supabase.co/auth/v1/.well-known/jwks.json"
   },
   "allowedRoutes": [
-    "GET /api/notes",
-    "POST /api/notes",
     "GET /api/notes/:id",
     "PUT /api/notes/:id",
-    "DELETE /api/notes/:id",
-    "POST /api/session",
-    "PUT /api/notices/:id",
     "POST /api/notes/:id/restore"
   ],
   "originalApiUrl": "https://rdcumwwanpqiqyzzuquw.supabase.co/rest/v1/vault_notes",
