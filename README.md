@@ -1,17 +1,18 @@
-# BYTE BACK 방어전 자료실 — 5단계 저장점
+# BYTE BACK 방어전 자료실 — 6단계 저장점
 
 이 저장소는 BYTE BACK 방어전 시작 틀 R5에서 출발한 학생 자료실입니다. 메모는 모두 실습용 가상 자료입니다. 실제 학생 자료, 토큰, 비밀키를 넣지 마세요.
 
 - 배포 주소: https://choi-bujang-secret-vault-opal.vercel.app
-- 현재 단계: 5단계(자료 요청을 서버 한곳으로) 저장점
+- 현재 단계: 6단계(등록한 기기만 자료실에) 저장점
 
 ## 지금 작동하는 기능
 
-1. 화면(`/`)에서 Supabase Auth 이메일·비밀번호로 로그인·로그아웃합니다. 로그인 실패 이유를 화면에 보여 줍니다. 공개용 Project URL과 publishable key만 화면 코드에 있습니다.
+1. 화면(`/`)에서 이메일·비밀번호로 로그인·로그아웃합니다. 로그인·토큰 갱신·로그아웃은 서버 함수 `/api/session`이 공식 Supabase SDK로 처리하고, 로그인 실패 이유를 화면에 보여 줍니다. 화면 코드에는 Supabase 주소나 키(공개 키 포함)가 없습니다.
 2. 자료 API `/api/notes`는 요청의 로그인 토큰을 시작 틀의 `src/verify-login.mjs`로 검사합니다. 토큰이 없거나 검사에 실패하면 자료 없이 401로 거부합니다. 브라우저가 보낸 userId·role·owner_id는 믿지 않습니다.
 3. 로그인한 사용자는 **자기** 가상 메모만 목록으로 보고, 읽기·추가·수정·삭제할 수 있습니다. 서버는 검증된 사용자 ID와 DB의 `owner_id`를 비교합니다. 남의 메모는 ID를 알아도 404로 거부하고, 수정으로 주인을 바꾸려 하면 403으로 거부합니다. 추가할 때는 본문의 `owner_id`를 무시하고 검증된 ID로 저장합니다.
-5. 메모 자료 요청은 서버 함수 `/api/notes` 한곳으로만 갑니다. 브라우저는 Supabase에 로그인(Auth)만 직접 요청합니다. DB의 `vault_notes`는 `PUBLIC`·`anon`·`authenticated` 직접 권한이 모두 회수되어, 공개 키나 로그인 토큰으로 원본 자료 API(`originalApiUrl`)를 직접 불러도 거부됩니다. 서버 함수만 서버 전용 키(service_role)로 접근합니다. RLS와 4단계 정책 4개(`auth.uid() = owner_id`)는 예비 방어로 남겨 둡니다.
-4. 정적 `/data.json`은 만들지 않습니다(404). 빌드는 `public/aleph.json`에 배포 저장소·커밋·주소·단계를 기록합니다.
+4. 메모 자료 요청은 서버 함수 `/api/notes` 한곳으로만 갑니다. 브라우저는 Supabase에 직접 요청하지 않습니다. DB의 `vault_notes`는 `PUBLIC`·`anon`·`authenticated` 직접 권한이 모두 회수되어, 공개 키나 로그인 토큰으로 원본 자료 API(`originalApiUrl`)를 직접 불러도 거부됩니다. 서버 함수만 서버 전용 키(service_role)로 접근합니다. RLS와 4단계 정책 4개(`auth.uid() = owner_id`)는 예비 방어로 남겨 둡니다.
+5. 정적 `/data.json`은 만들지 않습니다(404). 빌드는 `public/aleph.json`에 배포 저장소·커밋·주소·단계·`originalApiUrl`·`allowedRoutes`를 기록합니다. 모든 응답에 보안 헤더(`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`)가 붙습니다.
+6. 판정기 `src/decider.mjs`는 운영 엔진이 확인한 요청에서 `deviceRegistered`가 `true`일 때만 내 자료실 읽기(`GET notes`)를 허용합니다(`device_registered`). 미등록이거나 값이 없으면 `deny`·`device_not_registered`입니다. 그 밖의 요청은 시작 틀 기본 거부(`starter.deny`)입니다.
 
 | 경로 | 동작 |
 |---|---|
@@ -20,6 +21,7 @@
 | `GET /api/notes/:id` | 본인 메모면 `{id,title,body}`, 없거나 남의 것이면 404 |
 | `PUT /api/notes/:id` | `{title,body}` → `{id,title,body}`, 없거나 남의 것이면 404, 주인 변경 시도는 403 |
 | `DELETE /api/notes/:id` | 204, 없거나 남의 것이면 404 |
+| `POST /api/session` | `{action}` (login·refresh·logout) `` 로그인 세션 처리 |
 
 ## 다시 실행하는 방법
 
@@ -40,6 +42,8 @@
 - 3단계: Supabase Auth 로그인·로그아웃, `verify-login.mjs` 토큰 검사, 로그인 사용자 메모 CRUD, `identityProvider`·`allowedRoutes` 기록.
 - 4단계: 메모 API가 검증된 사용자 ID와 `owner_id`를 비교(남의 메모 404, 주인 변경 403), A 기존 메모·B 시험 메모 소유자 지정, DB RLS 정책 4개와 최소 권한(anon 없음, authenticated는 SELECT·INSERT·UPDATE·DELETE).
 - 5단계: 브라우저의 메모 자료 요청이 모두 서버 함수 경유임을 확인(직접 호출 없음), `vault_notes`의 PUBLIC·anon·authenticated 직접 권한 회수, `originalApiUrl` 기록.
+  - 5단계 가점: 배포 정보 `/aleph.json`에 `originalApiUrl`·`allowedRoutes` 기록, 보안 헤더 추가, 로그인을 `/api/session`으로 옮겨 화면에서 Supabase 공개 키 제거.
+- 6단계: 판정기에 `device_registered` 규칙 추가(등록 기기의 자료실 읽기만 허용, 미등록·값 없음은 `device_not_registered` 거부), `npm run decider:test` 확인 순서 기록.
 
 ## 6단계: 등록 기기 판정기 확인 순서
 

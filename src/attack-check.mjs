@@ -1,7 +1,7 @@
 // The student changes this check as each stage adds an attack to the same app.
 // Never return tokens, private keys, real names, or note bodies.
 export async function runAttackChecks(config) {
-  if (config.step >= 3 && config.step <= 5) return runStep3Checks(config);
+  if (config.step >= 3 && config.step <= 6) return runStep3Checks(config);
   if (config.step !== 1) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
   let app;
   try {
@@ -89,6 +89,26 @@ async function runStep3Checks(config) {
   }
   results.push({ attackId: 'a_login_note_crud', expected: '정상 A 로그인은 메모 목록·추가·수정·삭제 가능',
     observed: '미실행: 로그인 비밀번호가 필요해 자동 점검에서 요청하지 않음' });
+  if (config.step >= 6) {
+    // 6단계: 판정기 기기 등록 규칙. 판정기는 운영 엔진이 부르므로 여기서는 로컬 판정기를 가상 요청으로 직접 불러 봅니다.
+    // 로컬 연습 결과이며 심판 판정이 아닙니다. 실제 미등록 기기 공격은 심판이 보냅니다.
+    try {
+      const { decide } = await import('./decider.mjs');
+      const { fixtureRequests } = await import('../scripts/fixture-7.mjs');
+      const { normal } = fixtureRequests();
+      const ok = await decide(normal);
+      const bad = await decide({ ...normal, requestId: crypto.randomUUID(), deviceRegistered: false });
+      results.push({ attackId: 'local_registered_device_read', expected: '로컬 판정기: 등록 기기의 자료실 읽기는 allow',
+        observed: `로컬 가상 요청 결과 ${ok.decision} · ${ok.reasonCode}` });
+      results.push({ attackId: 'local_unregistered_device_read', expected: '로컬 판정기: 미등록 기기는 deny·device_not_registered',
+        observed: `로컬 가상 요청 결과 ${bad.decision} · ${bad.reasonCode}` });
+    } catch {
+      results.push({ attackId: 'local_unregistered_device_read', expected: '로컬 판정기: 미등록 기기는 deny·device_not_registered',
+        observed: '미실행: 로컬 판정기를 불러오지 못함' });
+    }
+    results.push({ attackId: 'unregistered_device_relay', expected: '미등록 기기 인증서·인증서 없는 통로 요청은 거부',
+      observed: '미실행: 운영 통로(mTLS) 요청은 심판이 보내며 자동 점검에서 요청하지 않음' });
+  }
   if (config.step >= 5) {
     // 원본 자료 API를 공개(publishable) 키로 직접 요청: 권한이 없어 거부되어야 합니다.
     // 공개 키는 화면 코드에 원래 공개된 값이며, 결과에는 키를 기록하지 않습니다.
