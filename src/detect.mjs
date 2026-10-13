@@ -8,6 +8,7 @@
 //   요청 종류    method             (GET·POST·PUT·PATCH·DELETE)
 //   판정        decision           (allow·deny·step_up. 없으면 null)
 //   시각        at                 (10분 구간을 세기 위한 UTC ISO 시각)
+//   네트워크     network 또는 signals.network (제작 2: 'usual'이면 평소, 그 밖의 값은 평소와 다름, 없거나 'unknown'이면 모름 null)
 // 메모 내용(body·title·content)·토큰(authorization·token)·실명(name·email) 등 그 밖의 값은
 // 읽지도, 저장하지도, 출력하지도 않습니다. 형식이 틀린 사건은 임의의 값으로 채우지 않고 건너뜁니다.
 
@@ -16,6 +17,14 @@ const DEVICE_ID = /^[0-9a-f]{16}$/u;
 const METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']);
 const DECISIONS = new Set(['allow', 'deny', 'step_up']);
 const MAX_EVENTS = 100_000;
+const NETWORK = /^[a-z][a-z0-9_-]{0,31}$/u;
+
+function networkOf(event) {
+  const raw = typeof event.network === 'string' ? event.network
+    : (event.signals && typeof event.signals === 'object' && !Array.isArray(event.signals)
+      && typeof event.signals.network === 'string') ? event.signals.network : null;
+  return raw !== null && NETWORK.test(raw) && raw !== 'unknown' ? raw : null;
+}
 
 function readOne(event) {
   if (!event || typeof event !== 'object' || Array.isArray(event)) return null;
@@ -29,7 +38,7 @@ function readOne(event) {
   if (!Number.isFinite(atMs)) return null;
   const deviceId = typeof event.deviceId === 'string' && DEVICE_ID.test(event.deviceId) ? event.deviceId : null;
   const decision = typeof event.decision === 'string' && DECISIONS.has(event.decision) ? event.decision : null;
-  return Object.freeze({ sub, deviceId, method: event.method, decision, atMs });
+  return Object.freeze({ sub, deviceId, method: event.method, decision, network: networkOf(event), atMs });
 }
 
 // 가상 사건 배열 → 필요한 값만 담은 사건 배열(시각순). 원본 사건 객체는 바꾸지 않습니다.
@@ -44,8 +53,62 @@ export function readDetectionEvents(events) {
   return Object.freeze(list);
 }
 
+// 9단계 제작 2 · 탐지 규칙 하나: doppelganger_burst
+// 같은 가명 사용자(sub)의 GET 이 어느 10분 구간에서든 120건을 넘고(갑작스러운 다량 조회),
+// 그 구간에 평소와 다른 네트워크(network 가 'usual' 이 아님)에서 온 조회가 함께 있을 때만 의심으로 표시합니다.
+// - 다량 조회만 있고 네트워크가 평소대로면 정상으로 둡니다. 네트워크만 다르고 조회가 적어도 정상으로 둡니다.
+// - 지역(region)은 이 규칙에 쓰지 않습니다(지역 하나만으로 확정하지 않음).
+// - 다른 사용자의 사건을 합산하지 않고, 10분 밖의 사건을 같은 묶음으로 세지 않습니다.
+// - 사건에 네트워크 정보가 전혀 없는 경우(docs/DETECT_EVENTS.md 의 로컬 연습 형식)는 그 문서의 계약대로
+//   다량 조회만으로 판단합니다. 네트워크를 '평소'나 '다름'으로 임의로 채우지 않습니다.
+export const DETECT_RULE_ID = 'doppelganger_burst';
+const WINDOW_MS = 10 * 60 * 1000;
+const BURST_LIMIT = 120; // 정확히 120건은 의심 아님, 121건부터
+
+const isUnusual = item => item.network !== null && item.network !== 'usual';
+
+// 의심 표시 목록: [{ sub, deviceId, reasons }] (메모 내용·토큰·실명 없음)
+export function findSuspicious(events) {
+  const bySub = new Map();
+  for (const item of readDetectionEvents(events)) {
+    if (item.method !== 'GET') continue;
+    if (!bySub.has(item.sub)) bySub.set(item.sub, []);
+    bySub.get(item.sub).push(item);
+  }
+  const marks = [];
+  for (const [sub, reads] of bySub) {
+    const hasNetworkInfo = reads.some(item => item.network !== null);
+    let start = 0;
+    let unusualInWindow = 0;
+    let hit = null;
+    for (let end = 0; end < reads.length; end += 1) {
+      if (isUnusual(reads[end])) unusualInWindow += 1;
+      while (reads[end].atMs - reads[start].atMs >= WINDOW_MS) {
+        if (isUnusual(reads[start])) unusualInWindow -= 1;
+        start += 1;
+      }
+      const burst = end - start + 1 > BURST_LIMIT;
+      if (burst && (!hasNetworkInfo || unusualInWindow > 0)) { hit = { start, end }; break; }
+    }
+    if (!hit) continue;
+    // 대상 기기 후보: 그 구간에서 평소와 다른 네트워크로 가장 많이 조회한 기기(네트워크 정보가 없으면 가장 많이 조회한 기기)
+    const counts = new Map();
+    for (let i = hit.start; i <= hit.end; i += 1) {
+      const item = reads[i];
+      if (item.deviceId === null || (hasNetworkInfo && !isUnusual(item))) continue;
+      counts.set(item.deviceId, (counts.get(item.deviceId) ?? 0) + 1);
+    }
+    let deviceId = null;
+    let best = 0;
+    for (const [id, count] of counts) if (count > best) { deviceId = id; best = count; }
+    marks.push(Object.freeze({ sub, deviceId,
+      reasons: Object.freeze(hasNetworkInfo ? ['burst_read', 'new_network'] : ['burst_read']) }));
+  }
+  return Object.freeze(marks);
+}
+
 export function detect(events) {
-  readDetectionEvents(events);
-  // 탐지 규칙은 다음 제작에서 추가합니다. 지금은 어떤 접속도 회수하지 않습니다.
+  findSuspicious(events);
+  // 의심 표시까지만 합니다. 회수 제안(propose_revocation)은 다음 제작에서 별도 결과로 넣습니다.
   return { action: 'observe' };
 }
