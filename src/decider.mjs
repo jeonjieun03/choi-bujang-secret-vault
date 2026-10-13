@@ -9,9 +9,40 @@
 // 7단계 step_up_required: 심판이 보낸 가상 접속 사건(judge_fixture)에서 평소와 다른 신호가 2개 이상 겹치면
 // (평소와 다른 시각 · 처음 보는 네트워크 · 갑자기 많은 자료 요청 · 평소와 다른 지역) 추가 본인 확인(step_up)을 요구합니다.
 // 신호 하나(지역만, 시각만 등)로는 막지 않으며, 영구 차단(deny)하지 않습니다. 최근에 추가 확인을 마친 요청은 다시 판정해 허용합니다.
-export const RULE_IDS = Object.freeze(['starter.deny', 'device_registered', 'step_up_required']);
+//
+// 8단계 구역 규칙: 엔진이 확인한 사용자(subjectId)·기기(deviceRegistered)·메서드·정확한 경로(route·path)로 구역을 나눕니다.
+//   zone_own_notes          GET /notes, GET /notes/:id, PUT /notes/:id  → 자기 메모 읽기·수정 허용
+//   zone_instructor_notices GET /notices, GET /notices/:id → 읽기 허용, PUT /notices/:id → instructor_only 거부
+//   route_allowlist         위 표에 없는 경로·메서드, 쿼리가 붙은 요청, :id 자리에 기능 이름(export 등) → 거부
+// 판정 계약에는 메모 주인·강사 역할 칸이 없으므로(request.role 등은 만들지 않음), 강사 확인이 필요한 공지 수정은
+// 판정기에서 기본 거부하고, "남의 메모인지"는 자료 API가 저장된 owner_id로 다시 확인합니다.
+export const RULE_IDS = Object.freeze(['starter.deny', 'device_registered', 'step_up_required',
+  'zone_own_notes', 'zone_instructor_notices', 'route_allowlist']);
 
-const NOTES_READ_ROUTES = new Set(['GET /notes', 'GET /notes/:id']);
+// 정확한 경로 표: route(엔진이 확인한 경로 모양) → 구역·허용 여부. 표에 없으면 거부합니다.
+const ZONE_ROUTES = Object.freeze({
+  'GET /notes':        Object.freeze({ zone: 'zone_own_notes', allow: true, path: /^\/notes$/u }),
+  'GET /notes/:id':    Object.freeze({ zone: 'zone_own_notes', allow: true, path: /^\/notes\/([A-Za-z0-9_-]{1,64})$/u }),
+  'PUT /notes/:id':    Object.freeze({ zone: 'zone_own_notes', allow: true, path: /^\/notes\/([A-Za-z0-9_-]{1,64})$/u }),
+  'GET /notices':      Object.freeze({ zone: 'zone_instructor_notices', allow: true, path: /^\/notices$/u }),
+  'GET /notices/:id':  Object.freeze({ zone: 'zone_instructor_notices', allow: true, path: /^\/notices\/([A-Za-z0-9_-]{1,64})$/u }),
+  'PUT /notices/:id':  Object.freeze({ zone: 'zone_instructor_notices', allow: false, reason: 'instructor_only',
+    path: /^\/notices\/([A-Za-z0-9_-]{1,64})$/u }),
+});
+// :id 자리에 오면 안 되는 기능 이름(같은 깊이에 기능 경로를 두지 않음)
+const FUNCTION_WORDS = new Set(['export', 'import', 'download', 'all', 'bulk', 'admin', 'search', 'list', 'new', 'edit', 'delete']);
+
+// 요청이 어느 구역의 어떤 경로인지 정확히 맞춰 봅니다. 맞지 않으면 null.
+export function matchZoneRoute(request) {
+  const route = typeof request?.route === 'string' ? request.route : '';
+  const entry = Object.hasOwn(ZONE_ROUTES, route) ? ZONE_ROUTES[route] : null;
+  if (!entry) return null;
+  if (request.method !== route.split(' ')[0]) return null;
+  const m = typeof request.path === 'string' ? entry.path.exec(request.path) : null;
+  if (!m) return null;
+  if (m[1] && FUNCTION_WORDS.has(m[1].toLowerCase())) return null;
+  return { route, ...entry };
+}
 
 // 7단계 입력 검사: 엔진이 넘긴 접속 정보(request.signals, request.recentEvents)의 출처를 구분합니다.
 // - 'judge_fixture': 심판이 보낸 가상 접속 사건. 가상 사건 규칙에만 쓰고 실제 위치 증거로 취급하지 않습니다.
@@ -89,11 +120,6 @@ function recentlyStepUpVerified(request) {
     && Number.isInteger(s.authAgeSeconds) && s.authAgeSeconds >= 0 && s.authAgeSeconds <= STEP_UP_FRESH_SECONDS;
 }
 
-function isNotesRead(request) {
-  return request.service === 'notes' && request.method === 'GET'
-    && (typeof request.route !== 'string' || NOTES_READ_ROUTES.has(request.route));
-}
-
 export async function decide(request) {
   const base = { schema: 'aleph.decision.v1', requestId: request?.requestId };
 
@@ -107,10 +133,23 @@ export async function decide(request) {
     return { ...base, decision: 'step_up', reasonCode: 'step_up_required', ruleIds: ['step_up_required'] };
   }
 
-  // 등록 기기 + 엔진이 확인한 로그인 주체 + 내 자료실 읽기 → 허용
-  if (typeof request.subjectId === 'string' && request.subjectId && isNotesRead(request)) {
-    return { ...base, decision: 'allow', reasonCode: 'approved', ruleIds: ['device_registered'] };
+  // 엔진이 확인한 로그인 주체가 없으면 시작 틀 기본 거부
+  if (typeof request.subjectId !== 'string' || !request.subjectId) {
+    return { ...base, decision: 'deny', reasonCode: 'starter_not_ready', ruleIds: [RULE_IDS[0]] };
   }
+
+  // 구역 규칙: 쿼리로 기능을 고르지 않음(자료 ID는 경로로만)
+  if (Number.isInteger(request.queryLength) && request.queryLength > 0) {
+    return { ...base, decision: 'deny', reasonCode: 'route_not_allowed', ruleIds: ['route_allowlist'] };
+  }
+  const zone = matchZoneRoute(request);
+  if (!zone) {
+    return { ...base, decision: 'deny', reasonCode: 'route_not_allowed', ruleIds: ['route_allowlist'] };
+  }
+  if (!zone.allow) {
+    return { ...base, decision: 'deny', reasonCode: zone.reason, ruleIds: [zone.zone] };
+  }
+  return { ...base, decision: 'allow', reasonCode: 'approved', ruleIds: ['device_registered', zone.zone] };
 
   // 그 밖의 요청은 시작 틀의 기본 응답대로 거부
   return { ...base, decision: 'deny', reasonCode: 'starter_not_ready', ruleIds: [RULE_IDS[0]] };
