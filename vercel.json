@@ -5,6 +5,10 @@
   "outputDirectory": "public",
   "rewrites": [
     {
+      "source": "/api/notes/:id/restore",
+      "destination": "/api/restore?id=:id"
+    },
+    {
       "source": "/api/notes/:id",
       "destination": "/api/notes?id=:id"
     },

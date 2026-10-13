@@ -5,6 +5,7 @@ import { createLoginVerifier } from '../src/verify-login.mjs';
 import { resourceId } from '../src/resources.mjs';
 import { ownerKeyOf } from '../src/owner-key.mjs';
 import { logAuthReject } from '../src/auth-log.mjs';
+import { noteContentSha256 } from '../src/note-hash.mjs';
 
 const require = createRequire(import.meta.url);
 const config = require('../aleph.config.json');
@@ -148,6 +149,12 @@ export default async function handler(request, response) {
     });
     if (error?.code === '23505') return fail(response, 409, 'ID_ALREADY_EXISTS');
     if (error) return dbError(response, error, '추가');
+    // 10단계: 만든 순간(침해 전)의 내용을 비공개 사본에 남깁니다. 이미 사본이 있으면 덮어쓰지 않습니다.
+    const { error: backupError } = await createClient(url, secretKey, {
+      auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
+    }).from('vault_notes_backup').upsert({ note_id: newId, owner_id: userId, title: input.title, content: input.body,
+      content_sha256: noteContentSha256(input.title, input.body) }, { onConflict: 'note_id', ignoreDuplicates: true });
+    if (backupError) console.error('notes: 사본 저장 실패', backupError.code ?? 'unknown');
     response.setHeader('X-Resource-Id', resourceId('note', newId));
     return response.status(201).json({ id: newId });
   }

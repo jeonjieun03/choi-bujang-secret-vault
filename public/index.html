@@ -75,6 +75,12 @@
         <div><button id="add-button" class="btn" type="submit">추가</button></div>
       </form>
       <p id="note-error" class="error" role="alert" hidden></p>
+      <h2>사본에서 메모 한 건 복원</h2>
+      <form id="restore-form" novalidate>
+        <label>메모 ID <input id="restore-id" maxlength="36" placeholder="지운 메모의 ID (카드 아래 회색 글자)"></label>
+        <div><button id="restore-button" class="btn ghost" type="submit">ID로 복원</button></div>
+      </form>
+      <p id="restore-result" role="status" hidden></p>
     </section>
 
     <div class="notice">서버 함수(/api/notes)는 로그인 토큰을 검사하고, 메모를 읽고·추가하고·고치고·지울 때 주인이 본인인지 확인합니다. 다른 사람의 메모는 ID를 알아도 열 수 없습니다.</div>
@@ -146,6 +152,7 @@
       LOGIN_REQUIRED: '로그인이 필요합니다.', INVALID_LOGIN: '로그인 확인에 실패했습니다. 다시 로그인하세요.',
       INVALID_NOTE: '제목과 내용을 입력하세요(제목 120자, 내용 2000자 이내).', INVALID_ID: '메모 ID 형식이 맞지 않습니다.',
       NOT_FOUND: '메모를 찾을 수 없습니다. 이미 지워졌거나 내 메모가 아닙니다.', OWNER_CHANGE_FORBIDDEN: '메모 주인은 바꿀 수 없습니다.', ID_ALREADY_EXISTS: '같은 ID의 메모가 이미 있습니다.',
+      BACKUP_INVALID: '사본 검증에 실패해 복원하지 않았습니다.', RESTORE_UNAVAILABLE: '지금은 복원할 수 없습니다.', RESTORE_VERIFY_FAILED: '복원 뒤 대조가 맞지 않습니다.',
     };
     async function api(path, { method = 'GET', body } = {}, retried = false) {
       if (!currentSession?.access_token) throw new Error(REASONS.LOGIN_REQUIRED);
@@ -171,6 +178,8 @@
       const view = () => {
         const edit = el('button', { className: 'btn ghost', type: 'button', textContent: '수정' });
         const remove = el('button', { className: 'btn danger', type: 'button', textContent: '삭제' });
+        const restore = el('button', { className: 'btn ghost', type: 'button', textContent: '사본으로 복원' });
+        restore.addEventListener('click', () => restoreNote(note.id));
         edit.addEventListener('click', () => { showNoteError(''); editing(); });
         remove.addEventListener('click', async () => {
           if (!confirm(`'${note.title}' 메모를 지울까요?`)) return;
@@ -179,7 +188,8 @@
           catch (error) { remove.disabled = false; showNoteError(error.message); }
         });
         item.replaceChildren(el('strong', { textContent: note.title }), el('span', { textContent: note.body }),
-          el('div', { className: 'row' }, edit, remove));
+          el('small', { textContent: `ID ${note.id}`, style: 'color:#8a9ba8' }),
+          el('div', { className: 'row' }, edit, remove, restore));
       };
       const editing = () => {
         const title = el('input', { value: note.title, maxLength: 120 });
@@ -205,6 +215,24 @@
       view();
       return item;
     }
+
+    // 10단계: 사본에서 메모 한 건만 복원(POST /api/notes/:id/restore). 결과에는 대조 결과만 보여 줍니다.
+    async function restoreNote(id) {
+      const out = $('#restore-result');
+      out.hidden = false;
+      out.textContent = '복원 중입니다.';
+      try {
+        const data = await api(`/api/notes/${encodeURIComponent(id.trim())}/restore`, { method: 'POST' });
+        const m = data.restored.matches;
+        const state = { tampered: '변조됨 → 복원', deleted: '삭제됨 → 복원', unchanged: '이미 사본과 같음' }[data.restored.previous];
+        out.textContent = `복원 결과: ${state} · ID ${m.id ? '일치' : '불일치'} · 소유자 ${m.owner ? '일치' : '불일치'} · 내용 해시 ${m.contentSha256 ? '일치' : '불일치'} (${data.restored.sha256.slice(0, 12)}…)`;
+        await loadNotes();
+      } catch (error) { out.textContent = `복원 실패: ${error.message}`; }
+    }
+    $('#restore-form').addEventListener('submit', event => {
+      event.preventDefault();
+      restoreNote($('#restore-id').value);
+    });
 
     async function loadNotes() {
       const seq = ++loadSeq;

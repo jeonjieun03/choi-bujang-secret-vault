@@ -31,10 +31,21 @@
 | `GET /api/notices` | 강사 공지 목록 `[{id,title,body}]`, 강사 명단에 없으면 403 (allowedRoutes에는 넣지 않음) |
 | `GET /api/notices/:id` | 공지 한 건 `{id,title,body}`, 강사 명단에 없으면 403 (allowedRoutes에는 넣지 않음) |
 | `PUT /api/notices/:id` | `{title,body}` → `{id,title,body}`, 강사 명단에 없으면 403 |
+| `POST /api/notes/:id/restore` | (10단계) 비공개 사본에서 내 메모 한 건만 복원 → 200 `{id,title,body,restored:{previous,sha256,matches}}`, 사본 없음·남의 메모 404, 사본 해시 불일치 409 |
+
+## 10단계: 메모 한 건 복원 (서비스·경로)
+
+- 서비스: 자료 API 서비스 `notes`의 복원 함수 `api/restore.js` (Vercel 서버 함수)
+- 경로: `POST /api/notes/:id/restore` (`aleph.config.json`의 `restoreRoute`와 `allowedRoutes`에 기록, `vercel.json`이 `/api/restore?id=:id`로 연결)
+- 사본: Supabase 비공개 표 `vault_notes_backup`(ID·소유자·제목·내용·내용 해시). `supabase/step10_note_backup.sql`이 그때 있던 메모를 사본으로 뜨고, 그 뒤 새로 만든 메모는 `POST /api/notes`가 만든 순간의 내용을 사본에 남깁니다. 사본은 DB 안에만 있고 Git·제출 묶음에 넣지 않습니다.
+- 내용 해시: SHA-256(제목 + 코드 31 구분 문자 + 내용), `src/note-hash.mjs`와 SQL이 같은 방식입니다.
+- 절차: 로그인 확인 → 내 사본(ID·소유자 일치) 찾기 → 사본 해시 검증 → 지금 메모가 변조됐으면 고치고, 지워졌으면 다시 넣음(다른 메모는 건드리지 않음) → 다시 읽어 ID·소유자·내용 해시 대조 → 감사 기록 `vault_restore_audit`에 한 줄 추가(본문 없이 해시만).
+- 사본과 감사 기록은 DB 트리거로 수정·삭제가 막혀 있습니다(추가만 가능).
+- 확인은 시험 계정 B의 메모로만 합니다. 화면에서 B로 로그인 → 메모 카드의 **사본으로 복원**, 지운 메모는 카드 아래 회색 ID를 적어 두었다가 **ID로 복원**.
 
 ## 다시 실행하는 방법
 
-1. 학습용 Supabase SQL Editor에서 2단계 이전 SQL과 4단계 B 시험 메모 SQL(둘 다 메모 문장이 있어 저장소 밖 보관), `supabase/step3_notes_crud.sql`, `supabase/step4_rls_policies.sql`, `supabase/step5_revoke_direct_access.sql`, `supabase/step8_notices.sql`, `supabase/step8_instructors.sql`을 차례로 실행합니다. 이메일 자리는 실행할 때만 바꾸고 파일에는 저장하지 않습니다. A·B 시험 계정은 Authentication → Users에서 만듭니다.
+1. 학습용 Supabase SQL Editor에서 2단계 이전 SQL과 4단계 B 시험 메모 SQL(둘 다 메모 문장이 있어 저장소 밖 보관), `supabase/step3_notes_crud.sql`, `supabase/step4_rls_policies.sql`, `supabase/step5_revoke_direct_access.sql`, `supabase/step8_notices.sql`, `supabase/step8_instructors.sql`, `supabase/step10_note_backup.sql`을 차례로 실행합니다. 이메일 자리는 실행할 때만 바꾸고 파일에는 저장하지 않습니다. A·B 시험 계정은 Authentication → Users에서 만듭니다.
 2. Vercel 프로젝트 **Settings → Environment Variables**(Production)에 `SUPABASE_URL`과 서버 전용 `SUPABASE_SECRET_KEY`를 학생이 직접 넣습니다. 키 값은 코드·Git·채팅에 적지 않습니다.
 3. main에 푸시하거나 Deployments에서 Redeploy 합니다.
 4. 로컬 확인: `npm run build -- --local`, `npm run test:r5`, `npm run decider:test`, `npm run detect:test`(가상 사건 연습이며 심판 판정이 아님). 제출 묶음: `bundle-notes.json`을 만든 뒤 `npm run bundle`(결과 `artifacts/submission.json`, 둘 다 커밋하지 않음).
