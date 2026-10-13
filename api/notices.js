@@ -4,7 +4,6 @@ import { createLoginVerifier } from '../src/verify-login.mjs';
 import { resourceId } from '../src/resources.mjs';
 import { ownerKeyOf } from '../src/owner-key.mjs';
 import { logAuthReject } from '../src/auth-log.mjs';
-import { requireApprovedDevice } from '../src/device-guard.mjs';
 
 const require = createRequire(import.meta.url);
 const config = require('../aleph.config.json');
@@ -96,10 +95,6 @@ export default async function handler(request, response) {
   const client = createClient(url, secretKey, {
     auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
   });
-  // 11단계: 서버가 승인한 기기의 서명이 맞을 때만 진행합니다.
-  const deviceCheck = await requireApprovedDevice({ client, request, ownerId: ownerKeyOf(identity),
-    path: id ? `/api/notices/${id}` : '/api/notices' });
-  if (!deviceCheck.ok) return fail(response, deviceCheck.status, deviceCheck.error);
   const db = client.from('vault_notices');
 
   // 공지 읽기·수정 공통: 저장된 강사 명단과 검증된 사용자 ID를 대조합니다.

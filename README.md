@@ -1,9 +1,9 @@
-# BYTE BACK 방어전 자료실 — 11단계 저장점
+# BYTE BACK 방어전 자료실 — 10단계 저장점
 
 이 저장소는 BYTE BACK 방어전 시작 틀 R5에서 출발한 학생 자료실입니다. 메모는 모두 실습용 가상 자료입니다. 실제 학생 자료, 토큰, 비밀키를 넣지 마세요.
 
 - 배포 주소: https://choi-bujang-secret-vault-opal.vercel.app
-- 현재 단계: 11단계(나만의 접속 앱을 완성합니다) 저장점
+- 현재 단계: 10단계(백업에서 자료실을 되살립니다) 저장점
 
 ## 지금 작동하는 기능
 
@@ -20,9 +20,6 @@
 11. 자료 API는 검증된 사용자와 저장된 값을 다시 대조합니다. 남의 메모는 404(서버 기록 사유 `not_owner_or_missing`), 강사 공지는 읽기·수정 모두 DB 강사 명단 `vault_instructors`에 있을 때만 허용하고 아니면 403 `INSTRUCTOR_ONLY`입니다. 화면 메뉴나 요청 본문의 `role`은 믿지 않습니다.
 12. 탐지기 `src/detect.mjs`(9단계): 가상 사건에서 가명 사용자·기기·요청 종류·판정·시각·네트워크만 읽습니다(메모 내용·토큰·실명은 읽지 않음). 규칙 `doppelganger_burst`는 같은 사용자의 GET이 어느 10분 구간에서 120건을 넘고 그 구간에 평소와 다른 네트워크 조회가 함께 있을 때만 의심으로 표시합니다(지역은 쓰지 않음, 네트워크 정보가 없는 연습 사건은 `docs/DETECT_EVENTS.md` 계약대로 다량 조회만 봄). 의심이면 `detect()`가 `{action:'propose_revocation', reasonCode:'burst_read', subject}`를, 별도 결과 `revocationProposal()`이 대상 가상 기기 한 개와 이유를 냅니다. 정상은 `observe`입니다. 회수를 직접 집행하지 않으며, 운영 반 엔진의 사건 전달·실제 회수는 연결·시험하지 않았습니다.
 13. 복구(10단계): `backup/policy/`의 침해 전 정책 사본을 다시 읽어 SHA-256 지문, 사본 폴더 밖의 고정 기준(`src/policy-diff.mjs`의 `VERIFIED_POLICY_BACKUP`), Git 검증 커밋의 사본, 판정기 대조로 검증하고(사본과 지문을 함께 바꿔도 멈춤), `npm run backup:verify`로 시험 복원까지 해서 결과를 `backup/policy/verify-log.jsonl`에 남기며, 시험 정책 `policy/test-policy.json`과의 차이만 보여 준 뒤 확인을 받아 서비스 한 개만 되돌립니다(운영 판정기는 바꾸지 않음). 메모는 Supabase 비공개 사본 `vault_notes_backup`에서 내 메모 한 건만 `POST /api/notes/:id/restore`로 복원하고 감사 기록 `vault_restore_audit`에 한 줄 남깁니다.
-14. 접속 앱(11단계): 설치형 웹앱 설정(`public/manifest.webmanifest`, 아이콘, 오프라인 안내 `offline.html`·`sw.js`)을 붙였습니다. 서비스 워커는 공개 파일만 저장하고 보호 요청(`/api/...`)·로그인 정보는 저장하지 않습니다. 앱 설치 여부는 기기 승인과 무관하다고 화면에 표시합니다.
-15. 기기 승인(11단계): 로그인 뒤 "이 기기 승인 요청"을 누르면 패스키(ES256)를 만들고 **공개키만** 서버 `vault_devices`에 `pending`으로 저장합니다. 승인은 주인이 Supabase에서 `status`를 `approved`로 바꿀 때만 됩니다(화면 버튼·설치 표시로는 승인되지 않음). 승인 전에는 화면이 보호 자료 요청을 보내지 않고, 서버도 자료를 주지 않습니다.
-16. 요청 서명(11단계): "승인 확인하고 자료실 열기"에서 패스키로 한 번 확인하면 이번 화면용 서명 열쇠(메모리에만, 내보낼 수 없음)를 서버 세션(30분)에 묶습니다. 메모·공지·복원 요청마다 메서드·경로·본문 해시·시각·일회용 값에 서명하고, 서버(`src/device-guard.mjs`)는 서명 없음·서명 뒤 경로 변경·본문 변경·오래된 시각·재사용을 403으로 거부합니다. 로그인 토큰과 기기 키는 브라우저 저장소(localStorage 등)에 넣지 않습니다(새로고침하면 다시 로그인).
 
 | 경로 | 동작 |
 |---|---|
@@ -35,7 +32,6 @@
 | `GET /api/notices` | 강사 공지 목록 `[{id,title,body}]`, 강사 명단에 없으면 403 (allowedRoutes에는 넣지 않음) |
 | `GET /api/notices/:id` | 공지 한 건 `{id,title,body}`, 강사 명단에 없으면 403 (allowedRoutes에는 넣지 않음) |
 | `PUT /api/notices/:id` | `{title,body}` → `{id,title,body}`, 강사 명단에 없으면 403 |
-| `POST /api/device` | (11단계) 로그인 필요. `challenge`·`register`(공개키를 pending 으로 저장)·`unlock`(승인된 기기면 서명 세션 발급) |
 | `POST /api/notes/:id/restore` | (10단계) 비공개 사본에서 내 메모 한 건만 복원. 본문 `{"preview":true}`면 검증 결과·사본 버전·바뀔 항목만 보여 주고 쓰지 않음, `{"expectBackupSha256":…}`면 미리 본 사본과 같을 때만 실행 → 200 `{id,title,body,restored:{…}}`. 사본 없음·남의 메모 404, 사본 검증 실패 409, 실행 뒤 대조 실패는 되돌리고 502 |
 
 ## 10단계: 안전 정책(RLS) 사본 검증·차이 보기·되돌리기 (Supabase SQL)
@@ -99,15 +95,12 @@
 
 ## 다시 실행하는 방법
 
-1. 학습용 Supabase SQL Editor에서 2단계 이전 SQL과 4단계 B 시험 메모 SQL(둘 다 메모 문장이 있어 저장소 밖 보관), `supabase/step3_notes_crud.sql`, `supabase/step4_rls_policies.sql`, `supabase/step5_revoke_direct_access.sql`, `supabase/step8_notices.sql`, `supabase/step8_instructors.sql`, `supabase/step10_note_backup.sql`, `supabase/step10_backup_seal.sql`, `supabase/step10_restore_function.sql`, `supabase/step10_policy_backup.sql`, `supabase/step10_policy_restore_test.sql`, `supabase/step11_devices.sql`을 차례로 실행합니다. 11단계부터 메모·공지·복원 요청은 승인된 기기의 서명이 있어야 하므로, 화면에서 승인 요청 → Supabase에서 `vault_devices.status`를 `approved`로 변경 → "승인 확인하고 자료실 열기" 순서로 엽니다. 이메일 자리는 실행할 때만 바꾸고 파일에는 저장하지 않습니다. A·B 시험 계정은 Authentication → Users에서 만듭니다.
+1. 학습용 Supabase SQL Editor에서 2단계 이전 SQL과 4단계 B 시험 메모 SQL(둘 다 메모 문장이 있어 저장소 밖 보관), `supabase/step3_notes_crud.sql`, `supabase/step4_rls_policies.sql`, `supabase/step5_revoke_direct_access.sql`, `supabase/step8_notices.sql`, `supabase/step8_instructors.sql`, `supabase/step10_note_backup.sql`, `supabase/step10_backup_seal.sql`, `supabase/step10_restore_function.sql`, `supabase/step10_policy_backup.sql`, `supabase/step10_policy_restore_test.sql`을 차례로 실행합니다. 이메일 자리는 실행할 때만 바꾸고 파일에는 저장하지 않습니다. A·B 시험 계정은 Authentication → Users에서 만듭니다.
 2. Vercel 프로젝트 **Settings → Environment Variables**(Production)에 `SUPABASE_URL`과 서버 전용 `SUPABASE_SECRET_KEY`를 학생이 직접 넣습니다. 키 값은 코드·Git·채팅에 적지 않습니다.
 3. main에 푸시하거나 Deployments에서 Redeploy 합니다.
 4. 로컬 확인: `npm run build -- --local`, `npm run test:r5`, `npm run decider:test`, `npm run detect:test`(가상 사건 연습이며 심판 판정이 아님). 제출 묶음: `bundle-notes.json`을 만든 뒤 `npm run bundle`(결과 `artifacts/submission.json`, 둘 다 커밋하지 않음).
 
 ## 남아 있는 약점
-
-- 11단계 패스키를 Google 비밀번호 관리자 같은 동기화 저장소에 만들면, 같은 계정의 다른 기기에서도 쓰일 수 있습니다. 서버 승인과 `revoked` 변경으로 관리합니다.
-- 로그인 토큰을 저장하지 않으므로 새로고침하면 다시 로그인하고 기기 확인을 해야 합니다.
 
 - 1단계 커밋(`cf6ab50`)과 그 배포 기록에는 가상 메모가 남아 있습니다. 최신 파일에서 지워도 Git 이력과 이전 배포는 지워지지 않습니다.
 - 자기 점검(`npm run bundle`)은 로그인 없는 요청만 자동으로 보냅니다. A·B 로그인이 필요한 점검은 미실행으로 기록하며, 화면에서 학생이 직접 확인했습니다.
@@ -124,8 +117,7 @@
 - 7단계: 접속 정보 출처 구분 입력 검사, `step_up_required` 규칙 추가(복합 이상 `step_up`, 추가 확인 뒤 `allow`), 재로그인 검증 계약 상태 기록(실제 자료 차단은 미실행).
 - 8단계: 메모·강사 공지 자원 ID 분리와 공지 API(`/api/notices`), 판정기 구역 규칙(`zone_own_notes`·`zone_instructor_notices`·`route_allowlist`), 자료 API의 소유자·강사 명단 재대조. 저장점 뒤 보강: 판정기에서 메모 전체 목록 거부·주인 추측 규칙 제거, 공지 읽기도 강사만(`cb0c918`에서 심판 통과).
 - 9단계: 탐지기 입력 정리, `doppelganger_burst` 규칙(새 네트워크+10분 안 120건 초과), 별도 결과의 `propose_revocation` 제안(대상 가상 기기 한 개·`burst_read`). (`34468ec`에서 심판 통과)
-- 10단계: 침해 전 정책 사본 검증·차이 보기(`npm run policy:diff`), 시험 정책 서비스 한 개 되돌리기(`npm run policy:restore`, 미리 보기 후 `--yes`, 감사 이력 보존), 비공개 메모 사본에서 한 건 복원(`POST /api/notes/:id/restore`, ID·소유자·내용 해시 대조, 감사 기록 추가만), 복구 뒤 재시험 순서. 저장점 뒤 보강: 메모 사본 봉인·DB 복원 함수, **DB 안전 정책(RLS) 사본을 SQL로 남기고 다시 읽어 검증·차이 보기·되돌리기와 복원 시험 기록**(`step10_policy_backup.sql`·`step10_policy_restore_test.sql`, `a7a7775`에서 심판 통과).
-- 11단계: 설치형 웹앱 설정(manifest·아이콘·오프라인 안내)과 기기 승인 상태 표시, 패스키 기기 승인 요청(서버 pending → 주인 승인), 보호 요청마다 승인 기기 서명 확인(서명 없음·경로/본문 변경·재사용 거부), 로그인 토큰을 브라우저 저장소에서 제거.
+- 10단계: 침해 전 정책 사본 검증·차이 보기(`npm run policy:diff`), 시험 정책 서비스 한 개 되돌리기(`npm run policy:restore`, 미리 보기 후 `--yes`, 감사 이력 보존), 비공개 메모 사본에서 한 건 복원(`POST /api/notes/:id/restore`, ID·소유자·내용 해시 대조, 감사 기록 추가만), 복구 뒤 재시험 순서.
 
 ## 6단계: 등록 기기 판정기 확인 순서
 

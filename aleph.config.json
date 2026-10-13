@@ -1,5 +1,5 @@
 {
-  "step": 11,
+  "step": 10,
   "repoUrl": "https://github.com/jeonjieun03/choi-bujang-secret-vault",
   "publicAppUrl": "https://choi-bujang-secret-vault-opal.vercel.app/",
   "sampleMarker": "SAMPLE_NOTE_1",
@@ -17,8 +17,7 @@
     "DELETE /api/notes/:id",
     "POST /api/session",
     "PUT /api/notices/:id",
-    "POST /api/notes/:id/restore",
-    "POST /api/device"
+    "POST /api/notes/:id/restore"
   ],
   "originalApiUrl": "https://rdcumwwanpqiqyzzuquw.supabase.co/rest/v1/vault_notes",
   "restoreRoute": "POST /api/notes/:id/restore"

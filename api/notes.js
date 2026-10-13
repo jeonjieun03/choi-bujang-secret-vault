@@ -6,7 +6,6 @@ import { resourceId } from '../src/resources.mjs';
 import { ownerKeyOf } from '../src/owner-key.mjs';
 import { logAuthReject } from '../src/auth-log.mjs';
 import { noteContentSha256 } from '../src/note-hash.mjs';
-import { requireApprovedDevice } from '../src/device-guard.mjs';
 import { backupSeal } from '../src/backup-seal.mjs';
 
 const require = createRequire(import.meta.url);
@@ -123,14 +122,9 @@ export default async function handler(request, response) {
   // 8단계: 이 요청이 다루는 자원 ID(메모 목록 notes / 메모 한 건 note:<id>)를 응답 머리에 표시합니다.
   response.setHeader('X-Resource-Id', resourceId('note', id));
 
-  const supabase = createClient(url, secretKey, {
+  const db = createClient(url, secretKey, {
     auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
-  });
-  // 11단계: 서버가 승인한 기기의 서명(메서드·경로·본문)이 맞을 때만 자료를 다룹니다.
-  const deviceCheck = await requireApprovedDevice({ client: supabase, request, ownerId: userId,
-    path: id ? `/api/notes/${id}` : '/api/notes' });
-  if (!deviceCheck.ok) return fail(response, deviceCheck.status, deviceCheck.error);
-  const db = supabase.from('vault_notes');
+  }).from('vault_notes');
 
   // 목록: 로그인 사용자의 메모만
   if (!id && method === 'GET') {
