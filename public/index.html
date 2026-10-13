@@ -114,7 +114,7 @@
 
   <script type="module">
     // 이 화면에는 Supabase 주소나 키가 없습니다. 로그인·자료 요청은 모두 서버 함수(/api/session, /api/notes)로 갑니다.
-    const SESSION_KEY = 'byteback.session';
+    // 11단계: 로그인 세션(토큰)과 기기 세션은 이 화면의 메모리에만 둡니다. 브라우저 저장소에는 넣지 않습니다.
 
     // 11단계: 실행 형태(설치된 앱/브라우저 탭)는 안내로만 보여 주고 기기 승인 상태에는 쓰지 않습니다.
     function showInstallState() {
@@ -415,19 +415,7 @@
       finally { button.disabled = false; }
     });
 
-    // 세션 보관: 새로고침해도 로그인이 유지되도록 이 브라우저에만 저장합니다(비밀번호는 저장하지 않음).
-    function saveSession(session) {
-      try {
-        if (session) localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-        else localStorage.removeItem(SESSION_KEY);
-      } catch { /* 저장소를 못 쓰면 이 창에서만 유지 */ }
-    }
-    function loadSavedSession() {
-      try {
-        const saved = JSON.parse(localStorage.getItem(SESSION_KEY) ?? 'null');
-        return saved?.access_token && saved?.refresh_token ? saved : null;
-      } catch { return null; }
-    }
+    // 세션 보관: 메모리(currentSession)에만 둡니다. 새로고침하거나 창을 닫으면 다시 로그인해야 합니다.
     function sessionExpiresSoon(session) {
       return Number.isFinite(session?.expires_at) && session.expires_at - 60 <= Date.now() / 1000;
     }
@@ -442,7 +430,6 @@
       return response.ok ? { data } : { error: { code: data?.error, message: data?.message } };
     }
     function setSession(session) {
-      saveSession(session);
       render(session);
     }
     let refreshing = null;
@@ -452,12 +439,10 @@
       refreshing ??= sessionCall({ action: 'refresh', refresh_token: token }).finally(() => { refreshing = null; });
       const { data, error } = await refreshing;
       if (error || !data?.access_token) {
-        saveSession(null);
         render(null);
         return false;
       }
       currentSession = data;
-      saveSession(data);
       return true;
     }
 
@@ -490,13 +475,8 @@
       try { await sessionCall({ action: 'logout' }, token); } catch { /* 화면은 이미 로그아웃 상태 */ }
     });
 
-    // 처음 열 때: 저장된 세션이 있으면 필요할 때 갱신한 뒤 화면을 그립니다.
-    {
-      const saved = loadSavedSession();
-      currentSession = saved;
-      if (saved && sessionExpiresSoon(saved) && !(await refreshSession())) render(null);
-      else render(currentSession);
-    }
+    // 처음 열 때: 저장된 세션을 읽지 않고 로그아웃 상태로 시작합니다.
+    render(null);
   </script>
 </body>
 </html>
