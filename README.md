@@ -41,6 +41,19 @@
 - 4단계: 메모 API가 검증된 사용자 ID와 `owner_id`를 비교(남의 메모 404, 주인 변경 403), A 기존 메모·B 시험 메모 소유자 지정, DB RLS 정책 4개와 최소 권한(anon 없음, authenticated는 SELECT·INSERT·UPDATE·DELETE).
 - 5단계: 브라우저의 메모 자료 요청이 모두 서버 함수 경유임을 확인(직접 호출 없음), `vault_notes`의 PUBLIC·anon·authenticated 직접 권한 회수, `originalApiUrl` 기록.
 
+## 6단계: 등록 기기 판정기 확인 순서
+
+이 단계는 따로 설치할 접속 프로그램이 없습니다. 저장소 루트에서 아래 순서로 확인합니다.
+
+1. `src/decider.mjs`의 `RULE_IDS`에 `device_registered`가 있는지 봅니다.
+2. `npm run decider:test`를 실행합니다.
+3. 출력에서 두 줄을 확인합니다.
+   - `통과 · 등록 기기의 정상 요청` → 등록 기기(`deviceRegistered: true`)의 내 자료실 읽기는 `allow`
+   - `통과 · 미등록 기기의 가상 요청` → 미등록 기기(`deviceRegistered: false`)는 `deny`·`device_not_registered`
+4. 둘 중 하나라도 `확인 필요`가 나오면 `src/decider.mjs`의 `device_registered` 규칙을 다시 봅니다.
+
+`npm run decider:test`는 가상 요청으로 하는 로컬 연습이며 심판 통과 증거가 아닙니다. 실제 미등록 기기 공격은 심판이 따로 보냅니다.
+
 ## 보너스 xdr-01: 무차별 로그인 공격 탐지 (`xdr/brute-force/`)
 
 - `read-alerts.mjs`: 확인용. `xdr/fixtures/brute-force.json` 경보에서 시각·출발 주소·계정·규칙 수준·설명만 뽑고 비밀값처럼 보이는 값은 가립니다.
