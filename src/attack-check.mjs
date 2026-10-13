@@ -1,7 +1,7 @@
 // The student changes this check as each stage adds an attack to the same app.
 // Never return tokens, private keys, real names, or note bodies.
 export async function runAttackChecks(config) {
-  if (config.step >= 3 && config.step <= 10) return runStep3Checks(config);
+  if (config.step >= 3 && config.step <= 11) return runStep3Checks(config);
   if (config.step !== 1) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
   let app;
   try {
@@ -92,8 +92,30 @@ async function runStep3Checks(config) {
       : `HTTP ${result.status} 응답 (${ok(result.status) ? '예상과 같음' : '예상과 다름'})`;
     results.push({ attackId, expected, observed });
   }
-  results.push({ attackId: 'a_login_note_crud', expected: '정상 A 로그인은 메모 목록·추가·수정·삭제 가능',
-    observed: '미실행: 로그인 비밀번호가 필요해 자동 점검에서 요청하지 않음' });
+  // 11단계부터는 점검 20개 이내를 지키려고 미실행 표시만 하던 이 항목을 빼고, 로컬 서명 점검을 넣습니다.
+  if (config.step < 11) {
+    results.push({ attackId: 'a_login_note_crud', expected: '정상 A 로그인은 메모 목록·추가·수정·삭제 가능',
+      observed: '미실행: 로그인 비밀번호가 필요해 자동 점검에서 요청하지 않음' });
+  } else {
+    // 11단계: 로컬에서 만든 가상 서명 열쇠로 "서명 뒤 경로 변경·본문 변경·서명 없음"을 서버와 같은 검사 함수에 넣어 봅니다.
+    try {
+      const { generateKeyPairSync, sign } = await import('node:crypto');
+      const { canonicalRequest, verifyRequestSignature } = await import('./device-auth.mjs');
+      const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
+      const jwk = publicKey.export({ format: 'jwk' });
+      const base = { method: 'PUT', path: '/api/notes/11111111-1111-4111-8111-111111111111',
+        bodyText: '{"title":"t","body":"b"}', time: String(Date.now()), nonce: 'local-check-nonce-01', sessionId: probeId };
+      const sig = sign('sha256', Buffer.from(canonicalRequest(base), 'utf8'), { key: privateKey, dsaEncoding: 'ieee-p1363' }).toString('base64url');
+      const same = verifyRequestSignature(jwk, canonicalRequest(base), sig);
+      const path = verifyRequestSignature(jwk, canonicalRequest({ ...base, path: '/api/notes/22222222-2222-4222-8222-222222222222' }), sig);
+      const body = verifyRequestSignature(jwk, canonicalRequest({ ...base, bodyText: '{"title":"t","body":"x"}' }), sig);
+      const none = verifyRequestSignature(jwk, canonicalRequest(base), '');
+      results.push({ attackId: 'local_device_signature_tamper', expected: '로컬 서명 검사: 원래 요청만 통과, 서명 뒤 경로 변경·본문 변경·서명 없음은 거부',
+        observed: `로컬 결과 원래 ${same ? '통과' : '거부'} · 경로 변경 ${path ? '통과' : '거부'} · 본문 변경 ${body ? '통과' : '거부'} · 서명 없음 ${none ? '통과' : '거부'}` });
+    } catch {
+      results.push({ attackId: 'local_device_signature_tamper', expected: '로컬 서명 검사: 서명 뒤 경로·본문 변경은 거부', observed: '미실행: 로컬 서명 검사 함수를 불러오지 못함' });
+    }
+  }
   if (config.step >= 6) {
     // 6단계: 판정기 기기 등록 규칙. 판정기는 운영 엔진이 부르므로 여기서는 로컬 판정기를 가상 요청으로 직접 불러 봅니다.
     // 로컬 연습 결과이며 심판 판정이 아닙니다. 실제 미등록 기기 공격은 심판이 보냅니다.
