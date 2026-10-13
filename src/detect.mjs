@@ -107,8 +107,28 @@ export function findSuspicious(events) {
   return Object.freeze(marks);
 }
 
+// 9단계 제작 3 · 회수 제안(propose_revocation)
+// 탐지 결과는 판정기(decide)의 접속 허용/거부 응답과 별도입니다. 판정기 응답 다섯 항목은 바꾸지 않습니다.
+// 여기서는 제안만 하고, 회수 API를 만들거나 기기 권한을 바꾸지 않습니다. 실제 회수와 경과 시간은 심판이 확인합니다.
+// 이유 코드는 계약(docs/DETECT_EVENTS.md)의 'burst_read' 하나만 씁니다.
+const REASON_CODE = 'burst_read';
+
+// 별도 결과(자세히): 대상은 의심 표시된 첫 사용자의 확인된 가상 기기 한 개로 한정합니다.
+//   { action: 'propose_revocation', reasonCode, ruleId, subject, deviceId, reasons } 또는 { action: 'observe' }
+// 사건에 기기 ID가 없으면(로컬 연습 형식) deviceId 는 null 로 두고 임의의 기기를 만들지 않습니다.
+export function revocationProposal(events) {
+  const [mark] = findSuspicious(events);
+  if (!mark) return Object.freeze({ action: 'observe' });
+  return Object.freeze({ action: 'propose_revocation', reasonCode: REASON_CODE, ruleId: DETECT_RULE_ID,
+    subject: mark.sub, deviceId: mark.deviceId, reasons: mark.reasons });
+}
+
+// 엔진·연습 명령이 부르는 결과: 계약의 세 항목만 돌려줍니다.
+//   의심 → { action: 'propose_revocation', reasonCode: 'burst_read', subject }
+//   정상 → { action: 'observe' }
 export function detect(events) {
-  findSuspicious(events);
-  // 의심 표시까지만 합니다. 회수 제안(propose_revocation)은 다음 제작에서 별도 결과로 넣습니다.
-  return { action: 'observe' };
+  if (!Array.isArray(events)) throw new TypeError('invalid_detection_events');
+  const proposal = revocationProposal(events);
+  if (proposal.action !== 'propose_revocation') return { action: 'observe' };
+  return { action: 'propose_revocation', reasonCode: proposal.reasonCode, subject: proposal.subject };
 }
