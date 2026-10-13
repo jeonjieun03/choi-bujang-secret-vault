@@ -152,7 +152,7 @@
       LOGIN_REQUIRED: '로그인이 필요합니다.', INVALID_LOGIN: '로그인 확인에 실패했습니다. 다시 로그인하세요.',
       INVALID_NOTE: '제목과 내용을 입력하세요(제목 120자, 내용 2000자 이내).', INVALID_ID: '메모 ID 형식이 맞지 않습니다.',
       NOT_FOUND: '메모를 찾을 수 없습니다. 이미 지워졌거나 내 메모가 아닙니다.', OWNER_CHANGE_FORBIDDEN: '메모 주인은 바꿀 수 없습니다.', ID_ALREADY_EXISTS: '같은 ID의 메모가 이미 있습니다.',
-      BACKUP_INVALID: '사본 검증에 실패해 복원하지 않았습니다.', BACKUP_UNVERIFIED: '봉인으로 검증한 사본이 없어 복원하지 않았습니다(이 기능 이후에 만든 메모만 복원됩니다).', RESTORE_UNAVAILABLE: '지금은 복원할 수 없습니다.', RESTORE_VERIFY_FAILED: '복원 뒤 대조가 맞지 않습니다.',
+      BACKUP_INVALID: '사본 검증에 실패해 복원하지 않았습니다.', BACKUP_UNVERIFIED: '봉인으로 검증한 사본이 없어 복원하지 않았습니다(이 기능 이후에 만든 메모만 복원됩니다).', BACKUP_CHANGED_SINCE_PREVIEW: '미리 본 뒤 사본이 바뀌어 복원하지 않았습니다.', INVALID_EXPECTATION: '복원 확인 값 형식이 틀립니다.', RESTORE_UNAVAILABLE: '지금은 복원할 수 없습니다.', RESTORE_VERIFY_FAILED: '복원 뒤 대조가 맞지 않습니다.',
     };
     async function api(path, { method = 'GET', body } = {}, retried = false) {
       if (!currentSession?.access_token) throw new Error(REASONS.LOGIN_REQUIRED);
@@ -222,7 +222,18 @@
       out.hidden = false;
       out.textContent = '복원 중입니다.';
       try {
-        const data = await api(`/api/notes/${encodeURIComponent(id.trim())}/restore`, { method: 'POST' });
+        const path = `/api/notes/${encodeURIComponent(id.trim())}/restore`;
+        // 1) 미리 보기: 검증된 사본의 버전과 바뀔 항목을 먼저 보여 줌(아무것도 쓰지 않음)
+        const preview = await api(path, { method: 'POST', body: { preview: true } });
+        const labels = { note: '메모 전체(지워짐)', title: '제목', body: '내용' };
+        const items = preview.plan.changes.map(c => labels[c] ?? c).join('·') || '없음';
+        const when = preview.plan.backupVersion ? new Date(preview.plan.backupVersion).toLocaleString() : '-';
+        if (!confirm(`봉인 검증을 통과한 사본으로 복원할까요?\n사본 버전: ${when}\n바뀔 항목: ${items}`)) {
+          out.textContent = `복원 취소: 미리 보기만 했습니다(사본 버전 ${when} · 바뀔 항목 ${items}).`;
+          return;
+        }
+        // 2) 실행: 미리 본 사본과 같을 때만
+        const data = await api(path, { method: 'POST', body: { expectBackupSha256: preview.plan.backupSha256 } });
         const m = data.restored.matches;
         const state = { tampered: '변조됨 → 복원', deleted: '삭제됨 → 복원', unchanged: '이미 사본과 같음' }[data.restored.previous];
         const names = { note: '메모 전체', title: '제목', body: '내용' };

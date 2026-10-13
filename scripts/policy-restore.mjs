@@ -39,7 +39,7 @@ try {
       showChecks(plan.current, '복원 전 시험 정책 가상 요청 확인:');
       out('미리 보기만 했습니다. 위 항목을 확인한 뒤 같은 명령 끝에 --yes 를 붙이면 실행합니다.');
     } else {
-      const done = applyRestore(root, target, plan);
+      const done = await applyRestore(root, target, plan);
       out(`복원 완료: 시험 정책 ${plan.service} 서비스를 ${plan.toVersion} 으로 되돌렸습니다. 감사 이력 ${done.auditLinesBefore}줄 보존 + 1줄 추가.`);
       const ok = showChecks(done.policy, '복원 뒤 시험 정책 가상 요청 확인:');
       if (!ok) process.exitCode = 1;

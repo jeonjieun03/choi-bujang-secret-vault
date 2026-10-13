@@ -33,9 +33,17 @@ export async function planRestore(root, target, service) {
     fromVersion: current.version, toVersion: backup.snapshot.version });
 }
 
-// 계획대로 실행: 대상 서비스만 사본 값으로 바꾸고 감사 이력에 한 줄 덧붙입니다.
-export function applyRestore(root, target, plan, { now = new Date() } = {}) {
+// 계획대로 실행: 쓰기 직전에 사본을 다시 읽어 검증하고, 미리 보기 때의 사본·시험 정책과 같을 때만
+// 대상 서비스를 사본 값으로 바꾼 뒤 감사 이력에 한 줄 덧붙입니다. 다르면 아무것도 쓰지 않고 멈춥니다.
+export async function applyRestore(root, target, plan, { now = new Date() } = {}) {
   assertWritableTestPolicy(root, target);
+  const recheck = await loadVerifiedBackup(root);
+  if (recheck.manifest.sha256 !== plan.backup.manifest.sha256 || recheck.snapshot.version !== plan.toVersion) {
+    throw new PolicyBackupError('실행 직전 사본 재검증 결과가 미리 보기 때와 다름');
+  }
+  if (JSON.stringify(loadTestPolicy(target)) !== JSON.stringify(plan.current)) {
+    throw new PolicyBackupError('미리 보기 뒤 시험 정책이 바뀜(다시 미리 보기 필요)');
+  }
   const next = structuredClone(plan.current);
   next.services[plan.service] = structuredClone(plan.backup.snapshot.services[plan.service]);
   const remaining = diffPolicies({ ...next, version: plan.toVersion }, plan.backup.snapshot).changes;
