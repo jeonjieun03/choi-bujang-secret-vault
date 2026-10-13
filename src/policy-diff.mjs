@@ -4,6 +4,7 @@
 // - 사본이 없거나 검증에 실패하면 차이를 보여 주지 않고 중단합니다(PolicyBackupError).
 // - 시험 정책(policy/test-policy.json)만 읽습니다. 운영 판정기·aleph.config.json·DB는 읽기만 하고 바꾸지 않습니다.
 // - 비밀값·메모 본문·실명은 정책에 없고, 출력하지도 않습니다.
+import { execFileSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
@@ -14,6 +15,25 @@ const VERSION = /^[a-z0-9][a-z0-9._-]{0,63}$/u;
 const SHA256 = /^[0-9a-f]{64}$/u;
 
 export class PolicyBackupError extends Error {}
+
+// 침해 전에 검증한 사본의 고정 기준(사본 폴더 밖에 둠). 사본 파일과 그 옆의 manifest 를 함께 바꿔도
+// 이 기준과 Git 이력(검증 커밋에 올라간 사본)은 바뀌지 않으므로, 둘 중 하나라도 다르면 멈춥니다.
+export const VERIFIED_POLICY_BACKUP = Object.freeze({
+  version: 's9-34468ec',
+  file: 'safe-policy.s9-34468ec.json',
+  sha256: '61ef5429554e6b724180f31cd4dfb5aae6f0829f39b1c91323536c16516009cd',
+  verifiedCommit: 'c7bec6d',
+});
+
+// Git 이력의 검증 커밋에 올라간 사본과 지금 사본이 같은지 봅니다. Git 이 없으면 'unavailable'.
+function gitAnchor(root, relPath, raw) {
+  let committed;
+  try {
+    committed = execFileSync('git', ['-C', root, 'show', `${VERIFIED_POLICY_BACKUP.verifiedCommit}:${relPath}`],
+      { stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 1 << 20 });
+  } catch { return 'unavailable'; }
+  return sha256(committed) === sha256(raw) ? 'match' : 'mismatch';
+}
 
 const sha256 = buffer => createHash('sha256').update(buffer).digest('hex');
 
@@ -60,11 +80,19 @@ export async function loadVerifiedBackup(root, { crossCheck = true } = {}) {
   if (!existsSync(file)) throw new PolicyBackupError(`사본 파일(${manifest.file})이 없음`);
   const raw = readFileSync(file);
   if (sha256(raw) !== manifest.sha256) throw new PolicyBackupError('사본 검증 실패: SHA-256 지문이 사본 목록과 다름');
+  // 고정 기준: 사본 폴더 밖의 기준값과 같아야 함(사본·목록을 함께 바꾼 경우를 잡음)
+  if (manifest.file !== VERIFIED_POLICY_BACKUP.file || manifest.version !== VERIFIED_POLICY_BACKUP.version
+      || sha256(raw) !== VERIFIED_POLICY_BACKUP.sha256) {
+    throw new PolicyBackupError('사본 검증 실패: 침해 전 고정 기준(SHA-256)과 다름');
+  }
+  // Git 이력: 검증 커밋에 올라간 사본과 같아야 함(Git 이 없는 환경이면 고정 기준만 사용)
+  const git = gitAnchor(root, `backup/policy/${manifest.file}`, raw);
+  if (git === 'mismatch') throw new PolicyBackupError('사본 검증 실패: Git 검증 커밋의 사본과 다름');
   const snapshot = parseJson(raw, '사본');
   checkPolicyShape(snapshot, '사본');
   if (snapshot.version !== manifest.version) throw new PolicyBackupError('사본 검증 실패: 사본 버전과 사본 목록 버전이 다름');
   if (crossCheck) await crossCheckWithDecider(snapshot, root);
-  return Object.freeze({ manifest, snapshot, file });
+  return Object.freeze({ manifest, snapshot, file, anchor: Object.freeze({ pinned: 'match', git }) });
 }
 
 export function loadTestPolicy(path) {

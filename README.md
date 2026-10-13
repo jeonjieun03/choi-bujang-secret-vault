@@ -19,7 +19,7 @@
 10. 판정기 구역 규칙: 정확한 route·method·path 표로 메모 한 건 읽기·수정(`GET`·`PUT /notes/:id`)만 `zone_own_notes`로 허용합니다. 메모 전체 목록(`GET /notes`)은 여러 사람의 자료를 한꺼번에 여는 경로라 거부하고, 학생의 공지 수정은 `instructor_only`(`zone_instructor_notices`), 공지 목록·읽기와 그 밖의 경로·메서드·쿼리가 붙은 요청·`:id` 자리의 기능 이름(export 등)은 `route_allowlist`로 거부합니다. 메모 한 건의 주인 비교는 판정기가 추측하지 않고 자료 API가 합니다.
 11. 자료 API는 검증된 사용자와 저장된 값을 다시 대조합니다. 남의 메모는 404(서버 기록 사유 `not_owner_or_missing`), 강사 공지는 읽기·수정 모두 DB 강사 명단 `vault_instructors`에 있을 때만 허용하고 아니면 403 `INSTRUCTOR_ONLY`입니다. 화면 메뉴나 요청 본문의 `role`은 믿지 않습니다.
 12. 탐지기 `src/detect.mjs`(9단계): 가상 사건에서 가명 사용자·기기·요청 종류·판정·시각·네트워크만 읽습니다(메모 내용·토큰·실명은 읽지 않음). 규칙 `doppelganger_burst`는 같은 사용자의 GET이 어느 10분 구간에서 120건을 넘고 그 구간에 평소와 다른 네트워크 조회가 함께 있을 때만 의심으로 표시합니다(지역은 쓰지 않음, 네트워크 정보가 없는 연습 사건은 `docs/DETECT_EVENTS.md` 계약대로 다량 조회만 봄). 의심이면 `detect()`가 `{action:'propose_revocation', reasonCode:'burst_read', subject}`를, 별도 결과 `revocationProposal()`이 대상 가상 기기 한 개와 이유를 냅니다. 정상은 `observe`입니다. 회수를 직접 집행하지 않으며, 운영 반 엔진의 사건 전달·실제 회수는 연결·시험하지 않았습니다.
-13. 복구(10단계): `backup/policy/`의 침해 전 정책 사본(SHA-256 지문)을 다시 읽어 검증하고, 시험 정책 `policy/test-policy.json`과의 차이만 보여 준 뒤 확인을 받아 서비스 한 개만 되돌립니다(운영 판정기는 바꾸지 않음). 메모는 Supabase 비공개 사본 `vault_notes_backup`에서 내 메모 한 건만 `POST /api/notes/:id/restore`로 복원하고 감사 기록 `vault_restore_audit`에 한 줄 남깁니다.
+13. 복구(10단계): `backup/policy/`의 침해 전 정책 사본을 다시 읽어 SHA-256 지문, 사본 폴더 밖의 고정 기준(`src/policy-diff.mjs`의 `VERIFIED_POLICY_BACKUP`), Git 검증 커밋의 사본, 판정기 대조로 검증하고(사본과 지문을 함께 바꿔도 멈춤), `npm run backup:verify`로 시험 복원까지 해서 결과를 `backup/policy/verify-log.jsonl`에 남기며, 시험 정책 `policy/test-policy.json`과의 차이만 보여 준 뒤 확인을 받아 서비스 한 개만 되돌립니다(운영 판정기는 바꾸지 않음). 메모는 Supabase 비공개 사본 `vault_notes_backup`에서 내 메모 한 건만 `POST /api/notes/:id/restore`로 복원하고 감사 기록 `vault_restore_audit`에 한 줄 남깁니다.
 
 | 경로 | 동작 |
 |---|---|
@@ -53,7 +53,8 @@
 
 | 순서 | 무엇을 | 어떻게 | 기대 | 결과 |
 |---|---|---|---|---|
-| 0-1 | 정책 사본 다시 읽기·검증 | `npm run policy:diff` | 사본 SHA-256·판정기 대조 일치, 시험 정책과 차이 표시(없으면 "차이 없음") | 로컬 실행: 검증 일치, 차이 없음 |
+| 0-0 | **백업 검증(시험 복원 포함)** | `npm run backup:verify` | 사본 다시 읽기 → SHA-256·사본 폴더 밖 고정 기준·Git 검증 커밋(`c7bec6d`)·판정기 대조 일치 → 침공 연습 정책에 시험 복원 → 기대와 다른 요청 0개 → `backup/policy/verify-log.jsonl`에 pass 기록. 하나라도 틀리면 fail 기록 후 멈춤 | 로컬 실행: pass(기대와 다른 요청 4개 → 0개), 기록 남김 |
+| 0-1 | 정책 사본 다시 읽기·검증 | `npm run policy:diff` | 사본 SHA-256·고정 기준·Git 이력·판정기 대조 일치, 시험 정책과 차이 표시(없으면 "차이 없음") | 로컬 실행: 검증 일치, 차이 없음 |
 | 0-2 | 시험 정책 되돌리기 | `npm run policy:restore -- --service notes` 로 바뀔 항목 확인 → 맞으면 끝에 `--yes`(쓰기 직전에 사본을 다시 읽어 재검증, 미리 본 내용과 다르면 멈춤) | 바뀔 항목 표시 후 복원, 감사 이력 보존+1줄 | 로컬 실행: 침공 연습 사본으로 복원 확인(8개 항목), 실제 시험 정책은 바뀔 항목 없음 |
 | 0-3 | B 메모 변조 → 한 건 복원 | B 로그인 → 카드 **수정** 후 **사본으로 복원** | `변조됨 → 복원 · ID·소유자·내용 해시 일치` | 학생이 배포 화면에서 실행: 일치 |
 | 0-4 | B 메모 삭제 → 한 건 복원 | B 로그인 → 카드 ID 적기 → **삭제** → **ID로 복원** | `삭제됨 → 복원 · ID·소유자·내용 해시 일치` | 학생이 배포 화면에서 실행: 일치 |
