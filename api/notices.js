@@ -12,8 +12,8 @@ const config = require('../aleph.config.json');
 //   GET /api/notices        공지 목록 [{id,title,body}]   자원 ID notices
 //   GET /api/notices/:id    공지 한 건 {id,title,body}    자원 ID notice:<id>
 //   PUT /api/notices/:id    {title,body} → {id,title,body}  강사만(403 INSTRUCTOR_ONLY)
-// 로그인한 사람은 공지를 읽을 수 있습니다. 공지 수정은 DB에 저장된 강사 명단(vault_instructors)에
-// 검증된 사용자 ID가 있을 때만 허용합니다. 화면 메뉴나 요청 본문의 role·is_instructor 값은 믿지 않습니다.
+// 강사 공지는 학생에게 다른 구역입니다. 공지 읽기·수정 모두 DB에 저장된 강사 명단(vault_instructors)에
+// 검증된 사용자 ID가 있을 때만 허용하고, 학생은 403 INSTRUCTOR_ONLY 입니다. 화면 메뉴나 요청 본문의 role·is_instructor 값은 믿지 않습니다.
 // SUPABASE_SECRET_KEY는 서버 전용이며 브라우저 파일·응답·로그에 넣지 않습니다.
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
@@ -97,18 +97,20 @@ export default async function handler(request, response) {
   });
   const db = client.from('vault_notices');
 
-  // 공지 수정: 저장된 강사 명단과 검증된 사용자 ID를 대조합니다.
+  // 공지 읽기·수정 공통: 저장된 강사 명단과 검증된 사용자 ID를 대조합니다.
+  const { data: instructor, error: roleError } = await client.from('vault_instructors')
+    .select('user_id').eq('user_id', ownerKeyOf(identity)).maybeSingle();
+  if (roleError) {
+    console.error('notices: 강사 명단 확인 실패', roleError.code ?? 'unknown');
+    return fail(response, 502, 'NOTICES_UNAVAILABLE');
+  }
+  if (!instructor) {
+    console.info(`notices: deny ${method === 'PUT' ? 'update' : 'read'} reason=instructor_only`);
+    return fail(response, 403, 'INSTRUCTOR_ONLY');
+  }
+
+  // 공지 수정
   if (method === 'PUT') {
-    const { data: instructor, error: roleError } = await client.from('vault_instructors')
-      .select('user_id').eq('user_id', ownerKeyOf(identity)).maybeSingle();
-    if (roleError) {
-      console.error('notices: 강사 명단 확인 실패', roleError.code ?? 'unknown');
-      return fail(response, 502, 'NOTICES_UNAVAILABLE');
-    }
-    if (!instructor) {
-      console.info('notices: deny update reason=instructor_only');
-      return fail(response, 403, 'INSTRUCTOR_ONLY');
-    }
     const input = readJson(request);
     if (!input) return fail(response, 400, 'INVALID_JSON');
     if (!validText(input.title, TITLE_MAX) || !validText(input.body, BODY_MAX)) {

@@ -16,8 +16,6 @@
     "PUT /api/notes/:id",
     "DELETE /api/notes/:id",
     "POST /api/session",
-    "GET /api/notices",
-    "GET /api/notices/:id",
     "PUT /api/notices/:id"
   ],
   "originalApiUrl": "https://rdcumwwanpqiqyzzuquw.supabase.co/rest/v1/vault_notes",
