@@ -176,7 +176,8 @@ async function runStep3Checks(config) {
       observed: page.error ? `미실행: 화면을 읽지 못함(${page.error})`
         : (/sb_secret_|service_role/u.test(html) ? '화면에서 서버 전용 키 표시를 찾음 (예상과 다름)' : '화면에서 서버 전용 키 표시를 찾지 못함 (예상과 같음)') });
   }
-  if (config.step >= 4) {
+  // 8단계부터는 cross_zone_api_requests 한 항목이 B의 A 메모 읽기·수정·삭제·주인 변경을 함께 다룹니다(점검 20개 이내).
+  if (config.step >= 4 && config.step < 8) {
     results.push({ attackId: 'b_reads_a_note', expected: 'B 로그인으로 A 메모 ID를 조회하면 404로 거부',
       observed: '미실행: A·B 로그인 토큰이 필요해 자동 점검에서 요청하지 않음' });
     results.push({ attackId: 'b_updates_a_note', expected: 'B 로그인으로 A 메모를 수정하면 404로 거부',
