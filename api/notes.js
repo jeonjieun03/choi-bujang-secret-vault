@@ -14,7 +14,7 @@ const config = require('../aleph.config.json');
 //   PUT    /api/notes/:id    {title,body} → {id,title,body} 또는 404 (본인 메모가 아니면 404)
 //   DELETE /api/notes/:id    204 또는 404 (본인 메모가 아니면 404)
 // 로그인 여부와 사용자 ID는 시작 틀의 src/verify-login.mjs가 검증한 토큰에서만 얻습니다.
-// 요청 본문·주소에 들어온 userId·role·owner_id는 믿지 않습니다. 소유자 비교는 검증된 ID와 DB의 owner_id로만 합니다.
+// 요청 본문·주소에 들어온 userId·role·owner_id와 화면 메뉴 상태는 믿지 않습니다. 소유자 비교는 검증된 ID와 DB의 owner_id로만 합니다.
 // 수정 본문에 다른 소유자를 넣으면(소유자 변경 시도) 403으로 거부합니다.
 // SUPABASE_SECRET_KEY는 서버 전용이며 브라우저 파일·응답·로그에 넣지 않습니다.
 // 남은 일: DB 권한(GRANT·RLS)도 본인 행만 허용하도록 바꾸는 것은 다음 요청에서 합니다.
@@ -58,6 +58,13 @@ function validText(value, max) {
 
 function fail(response, status, error) {
   return response.status(status).json({ error });
+}
+
+// 8단계: 거부 사유를 서버 기록에 짧게 남깁니다(사용자 ID·메모 ID·토큰은 남기지 않음).
+// 응답은 남의 메모가 있는지 알려 주지 않도록 404 그대로 둡니다.
+function denyNotOwner(response, action) {
+  console.info(`notes: deny ${action} reason=not_owner_or_missing`);
+  return fail(response, 404, 'NOT_FOUND');
 }
 
 function dbError(response, error, action) {
@@ -145,7 +152,7 @@ export default async function handler(request, response) {
     const { data, error } = await db.select(COLUMNS)
       .eq('note_id', id).eq('owner_id', userId).maybeSingle();
     if (error) return dbError(response, error, '조회');
-    if (!data) return fail(response, 404, 'NOT_FOUND');
+    if (!data) return denyNotOwner(response, 'read');
     return response.status(200).json(toNote(data));
   }
 
@@ -165,7 +172,7 @@ export default async function handler(request, response) {
       .eq('note_id', id).eq('owner_id', userId)
       .select(`${COLUMNS}, owner_id`).maybeSingle();
     if (error) return dbError(response, error, '수정');
-    if (!data) return fail(response, 404, 'NOT_FOUND');
+    if (!data) return denyNotOwner(response, 'update');
     if (data.owner_id !== userId) return dbError(response, { code: 'OWNER_MISMATCH' }, '수정 확인');
     return response.status(200).json(toNote(data));
   }
@@ -174,6 +181,6 @@ export default async function handler(request, response) {
   const { data, error } = await db.delete()
     .eq('note_id', id).eq('owner_id', userId).select('note_id');
   if (error) return dbError(response, error, '삭제');
-  if (!data?.length) return fail(response, 404, 'NOT_FOUND');
+  if (!data?.length) return denyNotOwner(response, 'delete');
   return response.status(204).end();
 }

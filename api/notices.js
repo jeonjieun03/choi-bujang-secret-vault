@@ -9,11 +9,28 @@ const config = require('../aleph.config.json');
 // 8단계: 강사 공지(구역 instructor_notices). 메모(own_notes)와 다른 자원 ID를 씁니다.
 //   GET /api/notices        공지 목록 [{id,title,body}]   자원 ID notices
 //   GET /api/notices/:id    공지 한 건 {id,title,body}    자원 ID notice:<id>
-// 로그인한 사람은 공지를 읽을 수 있습니다. 공지 수정 권한(강사 확인)은 다음 요청에서 추가합니다.
+//   PUT /api/notices/:id    {title,body} → {id,title,body}  강사만(403 INSTRUCTOR_ONLY)
+// 로그인한 사람은 공지를 읽을 수 있습니다. 공지 수정은 DB에 저장된 강사 명단(vault_instructors)에
+// 검증된 사용자 ID가 있을 때만 허용합니다. 화면 메뉴나 요청 본문의 role·is_instructor 값은 믿지 않습니다.
 // SUPABASE_SECRET_KEY는 서버 전용이며 브라우저 파일·응답·로그에 넣지 않습니다.
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 const COLUMNS = 'notice_id, title, content';
+const TITLE_MAX = 120;
+const BODY_MAX = 2000;
+
+function readJson(request) {
+  const raw = request.body;
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+    } catch { return null; }
+  }
+  return null;
+}
+const validText = (v, max) => typeof v === 'string' && v.trim().length > 0 && v.length <= max;
 
 let verifier = null;
 function getVerifier(secretKey) {
@@ -37,8 +54,9 @@ export default async function handler(request, response) {
 
   const id = noticeIdFrom(request);
   const method = request.method ?? 'GET';
-  if (method !== 'GET') {
-    response.setHeader('Allow', 'GET');
+  const allowed = id ? ['GET', 'PUT'] : ['GET'];
+  if (!allowed.includes(method)) {
+    response.setHeader('Allow', allowed.join(', '));
     return fail(response, 405, 'METHOD_NOT_ALLOWED');
   }
 
@@ -70,9 +88,38 @@ export default async function handler(request, response) {
   if (id !== null && !UUID.test(id)) return fail(response, 400, 'INVALID_ID');
   response.setHeader('X-Resource-Id', resourceId('notice', id));
 
-  const db = createClient(url, secretKey, {
+  const client = createClient(url, secretKey, {
     auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
-  }).from('vault_notices');
+  });
+  const db = client.from('vault_notices');
+
+  // 공지 수정: 저장된 강사 명단과 검증된 사용자 ID를 대조합니다.
+  if (method === 'PUT') {
+    const { data: instructor, error: roleError } = await client.from('vault_instructors')
+      .select('user_id').eq('user_id', identity.userId).maybeSingle();
+    if (roleError) {
+      console.error('notices: 강사 명단 확인 실패', roleError.code ?? 'unknown');
+      return fail(response, 502, 'NOTICES_UNAVAILABLE');
+    }
+    if (!instructor) {
+      console.info('notices: deny update reason=instructor_only');
+      return fail(response, 403, 'INSTRUCTOR_ONLY');
+    }
+    const input = readJson(request);
+    if (!input) return fail(response, 400, 'INVALID_JSON');
+    if (!validText(input.title, TITLE_MAX) || !validText(input.body, BODY_MAX)) {
+      return fail(response, 400, 'INVALID_NOTICE');
+    }
+    const { data, error } = await db
+      .update({ title: input.title, content: input.body, updated_at: new Date().toISOString() })
+      .eq('notice_id', id).select(COLUMNS).maybeSingle();
+    if (error) {
+      console.error('notices: 수정 실패', error.code ?? 'unknown');
+      return fail(response, 502, 'NOTICES_UNAVAILABLE');
+    }
+    if (!data) return fail(response, 404, 'NOT_FOUND');
+    return response.status(200).json(toNotice(data));
+  }
 
   if (id === null) {
     const { data, error } = await db.select(COLUMNS).order('created_at', { ascending: false });
