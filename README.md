@@ -222,6 +222,15 @@
 - 다시 실행: `npm run xdr:run -- known-cve`(결과 `result.json`), `node xdr/known-cve/respond.mjs`(규칙·알림 갱신과 재생 확인).
 - 시험 경보 결과: block 8 · alert 8 · record 8, 정상 이벤트 block 없음.
 
+## 보너스 xdr-04: 몰래 심어진 프로그램 탐지 (`xdr/persistence/`)
+
+- `read-alerts.mjs`: 확인용. `xdr/fixtures/persistence.json` 경보에서 경보 번호·시각·출발 주소·계정·규칙 수준·설명만 뽑고 비밀값처럼 보이는 값은 가립니다. 실행 파일 경로·PC 이름은 뽑지 않습니다. `decide.mjs`는 이 파일을 불러오지 않습니다.
+- `patterns.json`: MITRE ATT&CK 근거의 세 패턴. 서명 없는 새 서비스 등록·실행 파일 변경(`unsigned-new-service`, T1543.003), 낯선 예약 작업(`unfamiliar-scheduled-task`, T1053.005), 시작 폴더 변경(`startup-folder-change`, 경보 표시 T1543·MITRE 분류 T1547.001). 패턴마다 찾는 조건과 근거 한 줄이 있습니다.
+- `decide.mjs`: 패턴을 상수로 담고 `decide(alert)`가 기법 표시(T1543·T1053)만으로 판단하지 않고 설명(새로 생김·바뀜·서명 여부·평소 목록 여부)과 실행 파일 위치(임시 폴더)를 함께 봅니다. 뚜렷한 자동 실행 등록은 확신도 0.85 이상 `block`, 생기거나 바뀌었지만 뚜렷하지 않으면 0.5 이상 `alert`, 평소 상태는 `record`입니다. import·파일 읽기·쓰기·네트워크가 없습니다.
+- `respond.mjs`: `block`만 자동 실행을 심은 출발 주소의 격리(거부) 규칙(만료 60분, 근거 경보 번호)으로 `deny-rules.json`에 만들고, `alert`·`block`은 `xdr/alerts.log`에 한 줄씩 쌓습니다(중복 없음, 실행 파일 경로 원문 없음). 시험 경보는 모두 같은 PC에서 나왔고 정상 사용자도 그 PC를 쓰므로 PC 전체·계정은 막지 않으며, 정상 이벤트가 있던 주소는 규칙에서 뺍니다. 판정기의 기존 규칙은 고치지 않습니다.
+- 다시 실행: `npm run xdr:run -- persistence`(결과 `result.json`), `node xdr/persistence/respond.mjs`(규칙·알림 갱신과 재생 확인).
+- 시험 경보 결과: block 8 · alert 8 · record 8, 정상 이벤트 block 없음.
+
 ## 다음 단계의 코딩 도구에 전달할 규칙
 
 [AGENTS.md](AGENTS.md)를 먼저 읽히고 한 번에 한 제작 단위만 요청하세요. 2단계부터는 자료 보호를 구현할 때 `public/data.json`을 복사하는 1단계 빌드 흐름도 함께 바꿔야 합니다. 3단계 이후의 로그인, 허용 경로, 5단계의 원본 API 주소, 6단계 이후 정책 규칙은 해당 단계 원고와 계약에 맞춰 추가합니다. 비밀번호·토큰·서버 전용 키·실제 학생 기록을 코드, Git, 제출 묶음에 넣지 않습니다.
