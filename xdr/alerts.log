@@ -50,3 +50,19 @@
 2026-09-27T03:09:04.000Z | alert | kc-14 | 203.0.113.46 | - | confidence 0.65 | jndi-lookup-param (CVE-2021-44228·T1190): 완전한 조회 구문 없이 이름·조각만 있음
 2026-09-27T04:22:13.000Z | alert | kc-15 | 192.0.2.47 | - | confidence 0.65 | jndi-lookup-param (CVE-2021-44228·T1190): 완전한 조회 구문 없이 이름·조각만 있음
 2026-09-27T05:11:36.000Z | alert | kc-16 | 198.51.100.47 | - | confidence 0.70 | jndi-lookup-param (CVE-2021-44228·T1190): 완전한 조회 구문 없이 이름·조각만 있음, 2번
+2026-09-27T00:18:04.000Z | block | ps-01 | 203.0.113.12 | user01 | confidence 0.93 | unsigned-new-service: 평소 목록에 없는 자동 실행 등록·서명 없음·임시 폴더 실행 파일
+2026-09-27T00:19:12.000Z | block | ps-02 | 203.0.113.12 | user01 | confidence 0.92 | unfamiliar-scheduled-task: 평소 목록에 없는 자동 실행 등록·임시 폴더 실행 파일
+2026-09-27T01:06:28.000Z | block | ps-03 | 198.51.100.12 | user02 | confidence 0.87 | startup-folder-change: 평소 목록에 없는 자동 실행 등록
+2026-09-27T01:22:03.000Z | block | ps-04 | 192.0.2.12 | user03 | confidence 0.93 | unsigned-new-service: 평소 목록에 없는 자동 실행 등록·서명 없음·3건
+2026-09-27T02:09:17.000Z | block | ps-05 | 203.0.113.19 | user04 | confidence 0.90 | unfamiliar-scheduled-task: 평소 목록에 없는 자동 실행 등록·임시 폴더 실행 파일
+2026-09-27T04:07:45.000Z | block | ps-06 | 198.51.100.19 | user05 | confidence 0.93 | unsigned-new-service: 평소 목록에 없는 자동 실행 등록·서명 없음·임시 폴더 실행 파일
+2026-09-27T05:14:08.000Z | block | ps-07 | 192.0.2.19 | user06 | confidence 0.91 | startup-folder-change + unfamiliar-scheduled-task: 평소 목록에 없는 자동 실행 등록·임시 폴더 실행 파일
+2026-09-27T06:28:31.000Z | block | ps-08 | 203.0.113.33 | user07 | confidence 0.93 | unsigned-new-service: 평소 목록에 없는 자동 실행 등록·임시 폴더 실행 파일
+2026-09-27T00:27:16.000Z | alert | ps-09 | 192.0.2.48 | user01 | confidence 0.60 | unfamiliar-scheduled-task 의심: 생기거나 바뀌었지만 서명 없음·평소 목록 밖이 확인되지 않음
+2026-09-27T01:15:22.000Z | alert | ps-10 | 198.51.100.48 | user02 | confidence 0.65 | startup-folder-change 의심: 생기거나 바뀌었지만 서명 없음·평소 목록 밖이 확인되지 않음
+2026-09-27T01:49:05.000Z | alert | ps-11 | 203.0.113.48 | user03 | confidence 0.60 | unsigned-new-service 의심: 생기거나 바뀌었지만 서명 없음·평소 목록 밖이 확인되지 않음
+2026-09-27T02:23:38.000Z | alert | ps-12 | 192.0.2.49 | user04 | confidence 0.60 | unfamiliar-scheduled-task 의심: 생기거나 바뀌었지만 서명 없음·평소 목록 밖이 확인되지 않음
+2026-09-27T03:11:09.000Z | alert | ps-13 | 198.51.100.49 | user05 | confidence 0.70 | unsigned-new-service 의심: 생기거나 바뀌었지만 서명 없음·평소 목록 밖이 확인되지 않음
+2026-09-27T04:19:27.000Z | alert | ps-14 | 203.0.113.49 | user06 | confidence 0.60 | startup-folder-change 의심: 생기거나 바뀌었지만 서명 없음·평소 목록 밖이 확인되지 않음
+2026-09-27T05:08:14.000Z | alert | ps-15 | 192.0.2.53 | user07 | confidence 0.65 | unfamiliar-scheduled-task 의심: 생기거나 바뀌었지만 서명 없음·평소 목록 밖이 확인되지 않음
+2026-09-27T06:16:42.000Z | alert | ps-16 | 198.51.100.53 | svc-lab | confidence 0.60 | unsigned-new-service 의심: 생기거나 바뀌었지만 서명 없음·평소 목록 밖이 확인되지 않음

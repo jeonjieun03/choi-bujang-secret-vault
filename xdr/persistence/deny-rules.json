@@ -1,0 +1,98 @@
+{
+  "schema": "aleph.xdr.deny-rules.v1",
+  "moduleKey": "persistence",
+  "rules": [
+    {
+      "ruleId": "xdr.persistence.isolate_source",
+      "action": "deny",
+      "match": {
+        "srcip": "203.0.113.12"
+      },
+      "createdAt": "2026-09-27T00:18:04.000Z",
+      "expiresAt": "2026-09-27T01:19:12.000Z",
+      "evidenceAlertIds": [
+        "ps-01",
+        "ps-02"
+      ],
+      "reason": "unsigned-new-service: 평소 목록에 없는 자동 실행 등록·서명 없음·임시 폴더 실행 파일"
+    },
+    {
+      "ruleId": "xdr.persistence.isolate_source",
+      "action": "deny",
+      "match": {
+        "srcip": "198.51.100.12"
+      },
+      "createdAt": "2026-09-27T01:06:28.000Z",
+      "expiresAt": "2026-09-27T02:06:28.000Z",
+      "evidenceAlertIds": [
+        "ps-03"
+      ],
+      "reason": "startup-folder-change: 평소 목록에 없는 자동 실행 등록"
+    },
+    {
+      "ruleId": "xdr.persistence.isolate_source",
+      "action": "deny",
+      "match": {
+        "srcip": "192.0.2.12"
+      },
+      "createdAt": "2026-09-27T01:22:03.000Z",
+      "expiresAt": "2026-09-27T02:22:03.000Z",
+      "evidenceAlertIds": [
+        "ps-04"
+      ],
+      "reason": "unsigned-new-service: 평소 목록에 없는 자동 실행 등록·서명 없음·3건"
+    },
+    {
+      "ruleId": "xdr.persistence.isolate_source",
+      "action": "deny",
+      "match": {
+        "srcip": "203.0.113.19"
+      },
+      "createdAt": "2026-09-27T02:09:17.000Z",
+      "expiresAt": "2026-09-27T03:09:17.000Z",
+      "evidenceAlertIds": [
+        "ps-05"
+      ],
+      "reason": "unfamiliar-scheduled-task: 평소 목록에 없는 자동 실행 등록·임시 폴더 실행 파일"
+    },
+    {
+      "ruleId": "xdr.persistence.isolate_source",
+      "action": "deny",
+      "match": {
+        "srcip": "198.51.100.19"
+      },
+      "createdAt": "2026-09-27T04:07:45.000Z",
+      "expiresAt": "2026-09-27T05:07:45.000Z",
+      "evidenceAlertIds": [
+        "ps-06"
+      ],
+      "reason": "unsigned-new-service: 평소 목록에 없는 자동 실행 등록·서명 없음·임시 폴더 실행 파일"
+    },
+    {
+      "ruleId": "xdr.persistence.isolate_source",
+      "action": "deny",
+      "match": {
+        "srcip": "192.0.2.19"
+      },
+      "createdAt": "2026-09-27T05:14:08.000Z",
+      "expiresAt": "2026-09-27T06:14:08.000Z",
+      "evidenceAlertIds": [
+        "ps-07"
+      ],
+      "reason": "startup-folder-change + unfamiliar-scheduled-task: 평소 목록에 없는 자동 실행 등록·임시 폴더 실행 파일"
+    },
+    {
+      "ruleId": "xdr.persistence.isolate_source",
+      "action": "deny",
+      "match": {
+        "srcip": "203.0.113.33"
+      },
+      "createdAt": "2026-09-27T06:28:31.000Z",
+      "expiresAt": "2026-09-27T07:28:31.000Z",
+      "evidenceAlertIds": [
+        "ps-08"
+      ],
+      "reason": "unsigned-new-service: 평소 목록에 없는 자동 실행 등록·임시 폴더 실행 파일"
+    }
+  ]
+}
