@@ -1,0 +1,44 @@
+{
+  "schema": "aleph.xdr.patterns.v1",
+  "moduleKey": "privilege",
+  "technique": "MITRE ATT&CK T1068 Exploitation for Privilege Escalation (권한 상승 악용), T1078 Valid Accounts (정상 계정 도용)",
+  "note": "계정·그룹 변경 경보와 관리자 권한 사용 경보에서 평소와 다른 권한 상승을 찾습니다. 수업용 관리 계정의 평소 로그인·로그아웃은 정상입니다.",
+  "patterns": [
+    {
+      "name": "admin-group-addition",
+      "title": "평범한 계정의 관리자 그룹 추가",
+      "mitre": "T1078 (경보 표시), T1098.007 (MITRE 분류)",
+      "condition": {
+        "summary": "평범한 계정이 관리자 그룹(administrators)에 추가된다",
+        "strong": "원격·처음 보는 주소에서 추가되거나, 추가 직후 관리자 명령이 이어지거나, 같은 주소에서 여러 계정이 한꺼번에 추가되거나, 빠졌던 계정이 곧바로 다시 들어온다",
+        "weak": "관리자 그룹이 아닌 과제·수업 그룹에 추가되거나, 새 로컬 그룹이 생겼거나, 그룹 설명만 바뀌었다(그룹 소속을 읽기만 한 것은 정상)",
+        "fields": ["data.group", "data.count", "data.srcip", "data.srcuser", "rule.description", "rule.level"]
+      },
+      "evidence": "이 경보 묶음은 관리자 그룹 추가를 T1078(도용한 정상 계정의 권한 높이기)로 표시했고, MITRE ATT&CK에서 계정을 관리자 같은 권한 그룹에 넣는 행위는 T1098.007(Additional Local or Domain Groups)로 분류된다. https://attack.mitre.org/techniques/T1098/007/"
+    },
+    {
+      "name": "unfamiliar-admin-command",
+      "title": "처음 보는 관리자 명령",
+      "mitre": "T1068",
+      "condition": {
+        "summary": "평범한 계정이나 방금 권한이 높아진 세션이 관리자 명령을 실행한다",
+        "strong": "방금 관리자가 된 계정이 곧바로 관리자 명령을 실행하거나, 세션이 갑자기 관리자 권한으로 바뀌거나, 다른 계정의 권한으로 관리자 명령을 실행하거나, 처음 보는 주소에서 관리자 명령을 실행한다",
+        "weak": "평소 주소에서 관리자 명령이 한 번 실행됐거나, 권한 상승 창이 뜨고 취소됐거나, 관리자 명령이 실패로 끝났거나, 권한 상승 뒤 이어진 명령이 없다",
+        "fields": ["rule.description", "rule.mitre", "rule.level", "data.srcip", "data.srcuser"]
+      },
+      "evidence": "MITRE ATT&CK T1068: 공격자는 소프트웨어 취약점을 악용해 평범한 계정의 권한을 관리자 수준으로 높인 뒤 관리자 명령을 실행하며, 평범한 세션이 갑자기 관리자 권한으로 명령을 실행하는 것이 그 흔적이다. https://attack.mitre.org/techniques/T1068/"
+    },
+    {
+      "name": "off-hours-privilege-use",
+      "title": "업무 시간 밖 권한 사용",
+      "mitre": "T1078",
+      "condition": {
+        "summary": "수업·업무 시간 밖이거나 업무처럼 보이지 않는 시각에 관리자 권한이 쓰인다(관리자 그룹 추가·관리자 명령 포함)",
+        "strong": "업무 시간 밖에 관리자 권한 사용이 있고, 처음 보는 주소이거나 관리자 그룹 추가·명령 실행이 함께 있다",
+        "weak": "수업 시간 중의 권한 상승 1건처럼 시각은 평소 범위이고 이어진 관리자 활동이 없다",
+        "fields": ["rule.description", "rule.level", "data.srcip", "data.srcuser"]
+      },
+      "evidence": "MITRE ATT&CK T1078: 공격자가 도용한 정상 계정은 평소와 다른 시각이나 처음 보는 곳에서 쓰이는 경우가 많아, 업무 시간 밖의 권한 사용은 도용된 계정을 찾는 단서가 된다. https://attack.mitre.org/techniques/T1078/"
+    }
+  ]
+}
