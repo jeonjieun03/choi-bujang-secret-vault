@@ -83,3 +83,23 @@
 2026-09-27T04:17:05.000Z | alert | pv-15 | 203.0.113.55 | user06 | confidence 0.60 | admin-group-addition 의심 (T1068·T1078): 권한·그룹 변화가 있지만 뚜렷하지 않음
 2026-09-27T05:07:22.000Z | alert | pv-16 | 192.0.2.56 | user07 | confidence 0.65 | unfamiliar-admin-command 의심 (T1068·T1078): 권한·그룹 변화가 있지만 뚜렷하지 않음
 2026-09-27T06:19:41.000Z | alert | pv-17 | 198.51.100.56 | user08 | confidence 0.60 | admin-group-addition 의심 (T1068·T1078): 권한·그룹 변화가 있지만 뚜렷하지 않음
+2026-09-27T00:16:03.000Z | block | ex-01 | 192.0.2.20 | user01 | confidence 0.96 | new-destination-bulk-transfer (T1041·T1048): 240MB·파일 200건 · 목적지 203.0.113.50
+2026-09-27T00:16:48.000Z | block | ex-02 | 192.0.2.20 | user01 | confidence 0.93 | off-hours-archive-exfil (T1041·T1048): 180MB·파일 1건 · 목적지 198.51.100.40
+2026-09-27T01:05:14.000Z | block | ex-03 | 198.51.100.20 | user02 | confidence 0.89 | new-destination-bulk-transfer (T1041·T1048): 90MB·8번 · 목적지 203.0.113.50
+2026-09-27T01:20:07.000Z | block | ex-04 | 203.0.113.20 | user03 | confidence 0.91 | new-destination-bulk-transfer (T1041·T1048): 120MB·파일 60건 · 목적지 198.51.100.40
+2026-09-27T02:04:26.000Z | block | ex-05 | 192.0.2.25 | user04 | confidence 0.92 | new-destination-bulk-transfer (T1041·T1048): 70MB·파일 140건 · 목적지 203.0.113.55
+2026-09-27T03:02:19.000Z | block | ex-06 | 198.51.100.25 | user05 | confidence 0.95 | c2-channel-exfil (T1041·T1048): 210MB·15번 · 목적지 192.0.2.90
+2026-09-27T04:12:08.000Z | block | ex-07 | 203.0.113.25 | user06 | confidence 0.89 | new-destination-bulk-transfer + off-hours-archive-exfil (T1041·T1048): 150MB·파일 3건 · 목적지 198.51.100.45
+2026-09-27T05:03:41.000Z | block | ex-08 | 192.0.2.26 | user07 | confidence 0.96 | new-destination-bulk-transfer (T1041·T1048): 320MB·파일 400건 · 목적지 203.0.113.60
+2026-09-27T06:08:12.000Z | block | ex-09 | 198.51.100.26 | user08 | confidence 0.92 | new-destination-bulk-transfer + c2-channel-exfil (T1041·T1048): 80MB·9번 · 목적지 203.0.113.61
+2026-09-27T07:01:05.000Z | block | ex-10 | 203.0.113.26 | user01 | confidence 0.91 | off-hours-archive-exfil (T1041·T1048): 110MB·파일 2건 · 목적지 198.51.100.46
+2026-09-27T00:24:10.000Z | alert | ex-11 | 192.0.2.57 | user01 | confidence 0.70 | new-destination-bulk-transfer 의심 (T1041·T1048): 8MB, 대용량·뚜렷한 유출 정황 없음 · 목적지 192.0.2.80
+2026-09-27T00:52:22.000Z | alert | ex-12 | 198.51.100.57 | user02 | confidence 0.65 | new-destination-bulk-transfer 의심 (T1041·T1048): 12MB, 대용량·뚜렷한 유출 정황 없음 · 목적지 198.51.100.80
+2026-09-27T01:17:36.000Z | alert | ex-13 | 203.0.113.57 | user03 | confidence 0.65 | off-hours-archive-exfil 의심 (T1041·T1048): 2MB, 대용량·뚜렷한 유출 정황 없음 · 목적지 -
+2026-09-27T01:46:04.000Z | alert | ex-14 | 192.0.2.58 | user04 | confidence 0.65 | new-destination-bulk-transfer 의심 (T1041·T1048): 0MB, 대용량·뚜렷한 유출 정황 없음 · 목적지 203.0.113.80
+2026-09-27T02:19:13.000Z | alert | ex-15 | 198.51.100.58 | user05 | confidence 0.65 | new-destination-bulk-transfer 의심 (T1041·T1048): 3MB, 대용량·뚜렷한 유출 정황 없음 · 목적지 192.0.2.81
+2026-09-27T03:13:29.000Z | alert | ex-16 | 203.0.113.58 | user06 | confidence 0.65 | new-destination-bulk-transfer 의심 (T1041·T1048): 15MB, 대용량·뚜렷한 유출 정황 없음 · 목적지 198.51.100.81
+2026-09-27T04:21:07.000Z | alert | ex-17 | 192.0.2.59 | user07 | confidence 0.65 | new-destination-bulk-transfer 의심 (T1041·T1048): 6MB, 대용량·뚜렷한 유출 정황 없음 · 목적지 192.0.2.10
+2026-09-27T05:12:44.000Z | alert | ex-18 | 198.51.100.59 | user08 | confidence 0.65 | new-destination-bulk-transfer 의심 (T1041·T1048): 0MB, 대용량·뚜렷한 유출 정황 없음 · 목적지 203.0.113.81
+2026-09-27T06:06:18.000Z | alert | ex-19 | 203.0.113.59 | user01 | confidence 0.60 | c2-channel-exfil 의심 (T1041·T1048): 0MB, 대용량·뚜렷한 유출 정황 없음 · 목적지 198.51.100.82
+2026-09-27T06:55:02.000Z | alert | ex-20 | 192.0.2.63 | user02 | confidence 0.70 | off-hours-archive-exfil 의심 (T1041·T1048): 5MB, 대용량·뚜렷한 유출 정황 없음 · 목적지 203.0.113.82
