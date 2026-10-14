@@ -16,9 +16,19 @@ export function traceRequest(name, request, response) {
   const method = /^[A-Z]{3,7}$/u.test(request?.method ?? '') ? request.method : 'GET';
   try {
     response.setHeader?.('X-Request-Id', id);
-    response.on?.('finish', () => {
-      console.info(`trace: ${name} id=${id} method=${method} status=${response.statusCode}`);
-    });
+    // 응답을 내보내기 "직전"(end 호출 시점)에 남깁니다. 응답이 끝난 뒤에는 Vercel 이 함수를 멈출 수 있어
+    // 그때 남긴 줄은 로그에 기록되지 않을 수 있습니다.
+    const end = response.end;
+    if (typeof end === 'function') {
+      let logged = false;
+      response.end = function tracedEnd(...args) {
+        if (!logged) {
+          logged = true;
+          try { console.info(`trace: ${name} id=${id} method=${method} status=${response.statusCode}`); } catch { /* 무시 */ }
+        }
+        return end.apply(this, args);
+      };
+    }
   } catch { /* 기록 실패는 응답을 바꾸지 않습니다. */ }
   return id;
 }
