@@ -1,0 +1,44 @@
+{
+  "schema": "aleph.xdr.patterns.v1",
+  "moduleKey": "exfiltration",
+  "technique": "MITRE ATT&CK T1041 Exfiltration Over C2 Channel (명령 통로로 유출), T1048 Exfiltration Over Alternative Protocol (다른 프로토콜로 유출)",
+  "note": "외부 전송 경보에서 평소보다 크거나 처음 보는 목적지로 가는 전송을 찾습니다. 자료실·수업 자료 주소로 가는 평소 전송은 정상입니다.",
+  "patterns": [
+    {
+      "name": "new-destination-bulk-transfer",
+      "title": "처음 보는 목적지로 대용량 전송",
+      "mitre": "T1048",
+      "condition": {
+        "summary": "처음 보는(평소 목록에 없는) 바깥 목적지로 큰 전송량이나 많은 파일이 나가거나, 평소에 쓰지 않던 포트로 자료가 연속 전송된다",
+        "strong": "처음 보는 목적지·외부 주소로 대용량(약 50MB 이상) 또는 많은 파일(약 50건 이상)이 나가거나, 같은 목적지로 대용량 전송이 반복되거나, 자료실 전체가 외부로 복사된다",
+        "weak": "처음 보는 주소로 작은 파일만 나갔거나, 전송이 실패했거나, 전송량이 평소보다 한 번 높지만 목적지는 평소 주소다",
+        "fields": ["data.dstip", "data.bytes", "data.files", "data.count", "rule.description", "rule.level"]
+      },
+      "evidence": "MITRE ATT&CK T1048: 공격자는 평소 쓰는 통로가 아닌 다른 프로토콜·포트·목적지로 자료를 빼돌리며, 처음 보는 바깥 주소로 많은 자료가 한꺼번에 나가는 것이 그 흔적이다. https://attack.mitre.org/techniques/T1048/"
+    },
+    {
+      "name": "off-hours-archive-exfil",
+      "title": "업무 시간 밖 압축 파일 반출",
+      "mitre": "T1048 (반출), T1560 (압축, MITRE 분류)",
+      "condition": {
+        "summary": "업무·수업 시간 밖이거나 처음 보는 주소로 압축 파일이 나간다",
+        "strong": "업무 시간 밖에 처음 보는 주소로 압축 파일이 나가거나, 압축 파일 여러 개가 연속으로 또는 여러 목적지로 처음 보는 주소에 올라간다",
+        "weak": "수업 시간에 압축 파일을 만들기만 하고 외부 전송은 없거나, 압축 파일을 연 뒤 일부만 다른 주소로 나갔거나, 수업 끝 무렵 백업처럼 보이는 전송이 1건이다",
+        "fields": ["data.dstip", "data.bytes", "data.files", "rule.description", "rule.level"]
+      },
+      "evidence": "MITRE ATT&CK T1048: 공격자는 빼낼 자료를 다른 통로로 내보내며, 그 전에 자료를 압축해 묶는 행위는 MITRE에서 T1560(Archive Collected Data)으로 분류되어 업무 시간 밖 압축 파일 반출은 유출의 흔적이 된다. https://attack.mitre.org/techniques/T1560/"
+    },
+    {
+      "name": "c2-channel-exfil",
+      "title": "명령 통로로 자료 유출",
+      "mitre": "T1041",
+      "condition": {
+        "summary": "공격자가 원격 조종에 쓰는 명령 통로(C2)로 자료나 큰 파일이 처음 보는 목적지에 전송된다",
+        "strong": "명령 통로로 큰 파일이 처음 보는 목적지에 반복 전송되거나, 같은 목적지로 업무 시간 밖에 전송이 여러 번 반복된다",
+        "weak": "명령 통로에 짧은 자료 이름만 몇 번 보이고 큰 파일은 아니다",
+        "fields": ["data.dstip", "data.bytes", "data.count", "rule.description", "rule.level"]
+      },
+      "evidence": "MITRE ATT&CK T1041: 공격자는 원격 조종에 쓰는 기존 명령 통로에 훔친 자료를 섞어 같은 목적지로 내보내며, 명령 통로로 큰 파일이 반복 전송되는 것이 그 흔적이다. https://attack.mitre.org/techniques/T1041/"
+    }
+  ]
+}
