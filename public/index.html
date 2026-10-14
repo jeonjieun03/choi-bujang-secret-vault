@@ -51,6 +51,17 @@
     .device .badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 14px; font-weight: 700; background: #5a4a1f; color: #ffe7a3; }
     .device small { display: block; margin-top: 8px; color: #8fa5bd; line-height: 1.6; }
     .offline { border: 1px solid #d0a073; background: #5a3a1f44; color: #ffe7cf; }
+    .ops { margin: 28px 0; padding: 16px 18px; border: 1px solid #51667c; border-radius: 14px; background: #121e30; }
+    .ops h2 { margin: 0 0 6px; font-size: 18px; }
+    .ops h3 { margin: 18px 0 6px; font-size: 16px; }
+    .ops small { display: block; color: #8fa5bd; line-height: 1.6; }
+    .ops .tag { display: inline-block; margin-left: 8px; padding: 2px 9px; border-radius: 999px; font-size: 13px; font-weight: 700; }
+    .ops .tag.confirmed { background: #1f5a4f; color: #b9fff1; }
+    .ops .tag.not_run { background: #4a4f5a; color: #e3e8f0; }
+    .ops .tag.unavailable { background: #5a1f2a; color: #ffc7d1; }
+    .ops table { width: 100%; margin-top: 6px; border-collapse: collapse; font-size: 14px; }
+    .ops th, .ops td { padding: 5px 8px; border-bottom: 1px solid #2c3d52; text-align: left; vertical-align: top; }
+    .ops th { color: #9fb3ca; font-weight: 600; }
   </style>
 </head>
 <body>
@@ -110,6 +121,15 @@
 
     <div class="notice">서버 함수(/api/notes)는 로그인 토큰을 검사하고, 메모를 읽고·추가하고·고치고·지울 때 주인이 본인인지 확인합니다. 다른 사람의 메모는 ID를 알아도 열 수 없습니다.</div>
     <ul id="notes" aria-live="polite"><li>가상 자료를 불러오는 중입니다.</li></ul>
+
+    <!-- 12단계 제작 1: 탈환 작전실. 서버 함수 /api/operations 의 실제 응답만 보여 주고, 성공 문구를 통과 근거로 쓰지 않습니다. -->
+    <section id="ops" class="ops" aria-live="polite" hidden>
+      <h2>탈환 작전실</h2>
+      <small>판정기 규칙·탐지 사건·회수 상태·복구 버전을 서버가 이번 요청에서 실제로 읽은 기록으로 요약합니다. 「실제 응답 확인」은 서버가 기록을 읽었다는 뜻이고, 「미실행」은 읽을 실제 기록이 없거나 연결되지 않았다는 뜻입니다. 메모 본문·제목·사용자 정보는 표시하지 않으며 기기·메모 ID는 앞 4자리만 보입니다.</small>
+      <div class="row"><button id="ops-refresh" class="btn ghost" type="button">작전실 새로고침</button></div>
+      <small id="ops-meta"></small>
+      <div id="ops-body"></div>
+    </section>
   </main>
 
   <script type="module">
@@ -171,6 +191,7 @@
       editor.hidden = !(user && device);
       if (!user) showNoteError('');
       loadNotes();
+      showOps(Boolean(user && device));
     }
 
     // 로그인 실패 이유를 한국어로 보여 줍니다(원문 메시지도 함께).
@@ -256,6 +277,86 @@
       showDeviceMessage('');
       try { await unlockDevice(); } catch (error) { showDeviceMessage(error?.name === 'NotAllowedError' ? '기기 확인이 취소됐거나 이 기기에 등록된 열쇠가 없습니다.' : error.message); }
     });
+    // ── 12단계 제작 1: 탈환 작전실 ──
+    // /api/operations 응답의 구역별 상태·수치·가린 기록만 그립니다. 수치는 서버가 센 값이고,
+    // 화면은 받은 기록 줄 수를 다시 세어 서버 수치와 맞는지 함께 보여 줍니다.
+    const OPS_STATUS = { confirmed: '실제 응답 확인', not_run: '미실행', unavailable: '읽기 실패' };
+    const OPS_COUNT_LABELS = {
+      rules: '규칙 수', events: '사건 수', devices: '기기 수', approved: '승인', pending: '대기', revoked: '회수',
+      versions: '정책 사본 버전', policyEvents: '정책 감사 기록', restoreEvents: '메모 복원 감사 기록', restored: '복원 성공', stopped: '복원 중단',
+    };
+    const OPS_COLUMN_LABELS = {
+      ruleId: '규칙 이름', device: '기기', status: '상태', requestedAt: '요청 시각', approvedAt: '승인 시각',
+      version: '버전', sha256: '지문', capturedAt: '사본 시각', at: '시각', action: '작업', result: '결과', note: '메모',
+    };
+    let opsSeq = 0;
+    function opsTable(rows) {
+      if (!rows.length) return el('small', { textContent: '기록 없음' });
+      const columns = Object.keys(rows[0]);
+      return el('table', {},
+        el('thead', {}, el('tr', {}, ...columns.map(c => el('th', { textContent: OPS_COLUMN_LABELS[c] ?? c })))),
+        el('tbody', {}, ...rows.map(row => el('tr', {}, ...columns.map(c => el('td', { textContent: row[c] ?? '-' }))))));
+    }
+    function opsCounts(counts) {
+      const entries = Object.entries(counts ?? {});
+      return el('table', {}, el('tbody', {}, ...entries.map(([k, v]) => el('tr', {},
+        el('th', { textContent: OPS_COUNT_LABELS[k] ?? k }), el('td', { textContent: String(v) })))));
+    }
+    // 화면이 받은 기록 줄 수 ↔ 서버 수치 대조(같은 응답 안에서)
+    function opsRowCheck(name, section) {
+      const r = section.records;
+      const pairs = name === 'decider' ? [['rules', r.length]]
+        : name === 'detection' ? [['events', r.length]]
+        : name === 'revocation' ? [['devices', r.length]]
+        : [['versions', r.versions?.length ?? 0], ['policyEvents', r.policyEvents?.length ?? 0], ['restoreEvents', r.restoreEvents?.length ?? 0]];
+      const ok = pairs.every(([key, shown]) => section.counts?.[key] === shown);
+      return `화면 기록 줄 수 ${pairs.map(([key, shown]) => `${OPS_COUNT_LABELS[key]} ${shown}`).join(' · ')} — 서버 수치와 ${ok ? '일치' : '불일치'}`;
+    }
+    function opsSection(name, title, section) {
+      const box = el('div');
+      box.append(el('h3', {}, title, el('span', { className: `tag ${section.status}`, textContent: OPS_STATUS[section.status] ?? section.status })));
+      box.append(el('small', { textContent: `출처: ${section.source ?? '서버 읽기 실패'}` }));
+      if (section.note) box.append(el('small', { textContent: section.note }));
+      if (section.ruleId) box.append(el('small', { textContent: `탐지 규칙: ${section.ruleId}` }));
+      box.append(opsCounts(section.counts));
+      if (name === 'recovery' && section.records && !Array.isArray(section.records)) {
+        box.append(el('small', { textContent: '정책 사본 버전' }), opsTable(section.records.versions ?? []));
+        box.append(el('small', { textContent: '정책 감사(최근)' }), opsTable(section.records.policyEvents ?? []));
+        box.append(el('small', { textContent: '내 메모 복원 감사(최근)' }), opsTable(section.records.restoreEvents ?? []));
+      } else {
+        box.append(opsTable(Array.isArray(section.records) ? section.records : []));
+      }
+      if (section.status !== 'unavailable') box.append(el('small', { textContent: opsRowCheck(name, section) }));
+      return box;
+    }
+    async function loadOps() {
+      const seq = ++opsSeq;
+      const meta = $('#ops-meta');
+      const body = $('#ops-body');
+      meta.textContent = '서버에서 작전실 기록을 읽는 중입니다.';
+      body.replaceChildren();
+      try {
+        const data = await api('/api/operations');
+        if (seq !== opsSeq) return;
+        const s = data?.sections ?? {};
+        meta.textContent = `요청 ID ${data.requestId} · 확인 시각 ${data.checkedAt} · 구역별 최근 ${data.limit}건까지`;
+        body.replaceChildren(
+          opsSection('decider', '판정기 규칙', s.decider ?? { status: 'unavailable', counts: {}, records: [] }),
+          opsSection('detection', '탐지 사건', s.detection ?? { status: 'unavailable', counts: {}, records: [] }),
+          opsSection('revocation', '회수 상태(기기 명단)', s.revocation ?? { status: 'unavailable', counts: {}, records: [] }),
+          opsSection('recovery', '복구 버전', s.recovery ?? { status: 'unavailable', counts: {}, records: {} }));
+      } catch (error) {
+        if (seq !== opsSeq) return;
+        meta.textContent = `작전실 기록을 읽지 못했습니다: ${error.message} 화면에는 아무 수치도 추정해 넣지 않습니다.`;
+      }
+    }
+    function showOps(open) {
+      $('#ops').hidden = !open;
+      if (open) loadOps();
+      else { opsSeq += 1; $('#ops-meta').textContent = ''; $('#ops-body').replaceChildren(); }
+    }
+    $('#ops-refresh').addEventListener('click', () => loadOps());
+
     let loadSeq = 0;
 
     function showNoteError(message) {
