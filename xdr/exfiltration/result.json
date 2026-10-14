@@ -1,0 +1,191 @@
+{
+  "schema": "aleph.xdr.result.v1",
+  "moduleKey": "exfiltration",
+  "decisions": [
+    {
+      "alertId": "ex-01",
+      "action": "block",
+      "confidence": 0.96,
+      "reason": "new-destination-bulk-transfer (T1041·T1048): 240MB·파일 200건"
+    },
+    {
+      "alertId": "ex-02",
+      "action": "block",
+      "confidence": 0.93,
+      "reason": "off-hours-archive-exfil (T1041·T1048): 180MB·파일 1건"
+    },
+    {
+      "alertId": "ex-03",
+      "action": "block",
+      "confidence": 0.89,
+      "reason": "new-destination-bulk-transfer (T1041·T1048): 90MB·8번"
+    },
+    {
+      "alertId": "ex-04",
+      "action": "block",
+      "confidence": 0.91,
+      "reason": "new-destination-bulk-transfer (T1041·T1048): 120MB·파일 60건"
+    },
+    {
+      "alertId": "ex-05",
+      "action": "block",
+      "confidence": 0.92,
+      "reason": "new-destination-bulk-transfer (T1041·T1048): 70MB·파일 140건"
+    },
+    {
+      "alertId": "ex-06",
+      "action": "block",
+      "confidence": 0.95,
+      "reason": "c2-channel-exfil (T1041·T1048): 210MB·15번"
+    },
+    {
+      "alertId": "ex-07",
+      "action": "block",
+      "confidence": 0.89,
+      "reason": "new-destination-bulk-transfer + off-hours-archive-exfil (T1041·T1048): 150MB·파일 3건"
+    },
+    {
+      "alertId": "ex-08",
+      "action": "block",
+      "confidence": 0.96,
+      "reason": "new-destination-bulk-transfer (T1041·T1048): 320MB·파일 400건"
+    },
+    {
+      "alertId": "ex-09",
+      "action": "block",
+      "confidence": 0.92,
+      "reason": "new-destination-bulk-transfer + c2-channel-exfil (T1041·T1048): 80MB·9번"
+    },
+    {
+      "alertId": "ex-10",
+      "action": "block",
+      "confidence": 0.91,
+      "reason": "off-hours-archive-exfil (T1041·T1048): 110MB·파일 2건"
+    },
+    {
+      "alertId": "ex-11",
+      "action": "alert",
+      "confidence": 0.7,
+      "reason": "new-destination-bulk-transfer 의심 (T1041·T1048): 8MB, 대용량·뚜렷한 유출 정황 없음"
+    },
+    {
+      "alertId": "ex-12",
+      "action": "alert",
+      "confidence": 0.65,
+      "reason": "new-destination-bulk-transfer 의심 (T1041·T1048): 12MB, 대용량·뚜렷한 유출 정황 없음"
+    },
+    {
+      "alertId": "ex-13",
+      "action": "alert",
+      "confidence": 0.65,
+      "reason": "off-hours-archive-exfil 의심 (T1041·T1048): 2MB, 대용량·뚜렷한 유출 정황 없음"
+    },
+    {
+      "alertId": "ex-14",
+      "action": "alert",
+      "confidence": 0.65,
+      "reason": "new-destination-bulk-transfer 의심 (T1041·T1048): 0MB, 대용량·뚜렷한 유출 정황 없음"
+    },
+    {
+      "alertId": "ex-15",
+      "action": "alert",
+      "confidence": 0.65,
+      "reason": "new-destination-bulk-transfer 의심 (T1041·T1048): 3MB, 대용량·뚜렷한 유출 정황 없음"
+    },
+    {
+      "alertId": "ex-16",
+      "action": "alert",
+      "confidence": 0.65,
+      "reason": "new-destination-bulk-transfer 의심 (T1041·T1048): 15MB, 대용량·뚜렷한 유출 정황 없음"
+    },
+    {
+      "alertId": "ex-17",
+      "action": "alert",
+      "confidence": 0.65,
+      "reason": "new-destination-bulk-transfer 의심 (T1041·T1048): 6MB, 대용량·뚜렷한 유출 정황 없음"
+    },
+    {
+      "alertId": "ex-18",
+      "action": "alert",
+      "confidence": 0.65,
+      "reason": "new-destination-bulk-transfer 의심 (T1041·T1048): 0MB, 대용량·뚜렷한 유출 정황 없음"
+    },
+    {
+      "alertId": "ex-19",
+      "action": "alert",
+      "confidence": 0.6,
+      "reason": "c2-channel-exfil 의심 (T1041·T1048): 0MB, 대용량·뚜렷한 유출 정황 없음"
+    },
+    {
+      "alertId": "ex-20",
+      "action": "alert",
+      "confidence": 0.7,
+      "reason": "off-hours-archive-exfil 의심 (T1041·T1048): 5MB, 대용량·뚜렷한 유출 정황 없음"
+    },
+    {
+      "alertId": "ex-21",
+      "action": "record",
+      "confidence": 0.05,
+      "reason": "평소 전송(작은 크기·평소 목적지)"
+    },
+    {
+      "alertId": "ex-22",
+      "action": "record",
+      "confidence": 0.05,
+      "reason": "평소 전송(작은 크기·평소 목적지)"
+    },
+    {
+      "alertId": "ex-23",
+      "action": "record",
+      "confidence": 0.15,
+      "reason": "평소 전송(작은 크기·평소 목적지)"
+    },
+    {
+      "alertId": "ex-24",
+      "action": "record",
+      "confidence": 0.05,
+      "reason": "평소 전송(작은 크기·평소 목적지)"
+    },
+    {
+      "alertId": "ex-25",
+      "action": "record",
+      "confidence": 0.05,
+      "reason": "평소 전송(작은 크기·평소 목적지)"
+    },
+    {
+      "alertId": "ex-26",
+      "action": "record",
+      "confidence": 0.05,
+      "reason": "평소 전송(작은 크기·평소 목적지)"
+    },
+    {
+      "alertId": "ex-27",
+      "action": "record",
+      "confidence": 0.05,
+      "reason": "평소 전송(작은 크기·평소 목적지)"
+    },
+    {
+      "alertId": "ex-28",
+      "action": "record",
+      "confidence": 0.05,
+      "reason": "평소 전송(작은 크기·평소 목적지)"
+    },
+    {
+      "alertId": "ex-29",
+      "action": "record",
+      "confidence": 0.05,
+      "reason": "평소 전송(작은 크기·평소 목적지)"
+    },
+    {
+      "alertId": "ex-30",
+      "action": "record",
+      "confidence": 0.05,
+      "reason": "평소 전송(작은 크기·평소 목적지)"
+    }
+  ],
+  "counts": {
+    "block": 10,
+    "alert": 10,
+    "record": 10
+  }
+}
