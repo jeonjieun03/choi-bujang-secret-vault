@@ -103,10 +103,55 @@
 3. main에 푸시하거나 Deployments에서 Redeploy 합니다.
 4. 로컬 확인: `npm run build -- --local`, `npm run test:r5`, `npm run decider:test`, `npm run detect:test`(가상 사건 연습이며 심판 판정이 아님). 제출 묶음: `bundle-notes.json`을 만든 뒤 `npm run bundle`(결과 `artifacts/submission.json`, 둘 다 커밋하지 않음).
 
+## 12단계: 출처와 설치·실행·중지·복구 안내
+
+**검사한 커밋: `2e902cd`** (실행 코드 기준). 이 안내를 적은 README 커밋과 저장점 커밋은 문서·설정만 바꾸며, 실행 코드(`api/`·`src/`·`public/`·`scripts/`)가 `2e902cd`와 같은지는 `git diff --stat 2e902cd HEAD -- api src public scripts`로 확인합니다(출력이 없어야 같음).
+
+### 출처: 학생 몫과 제공 엔진
+
+| 출처 | 들어 있는 것 |
+|---|---|
+| **제공 엔진: ALEPH SDP 엔진** (운영 측 제공, 이 저장소에 코드 없음) | 운영 경로에서 신원·기기·경로를 먼저 확인하고, 계약(`docs/DECIDER_REQUEST.md`)의 요청으로 학생 판정기 `decide()`를 불러 결과를 집행합니다. 미등록 기기는 판정기보다 먼저 막고, 탐지 사건 전달·접속 회수·감사 보관도 엔진 몫입니다. 학생 코드가 `allow`를 내도 엔진의 앞선 검사를 되돌릴 수 없습니다. |
+| **제공 시작 틀** (`ChoiTimo/aleph-defense-starter`, 고치지 않은 파일) | `src/verify-login.mjs`(로그인 토큰 검사), `scripts/bundle.mjs`(제출 묶음), `scripts/decider-test.mjs`·`scripts/detect-test.mjs`·`scripts/fixture-7.mjs`·`scripts/xdr-run.mjs`(가상 연습), `docs/DECIDER_REQUEST.md`·`docs/DETECT_EVENTS.md`(계약 문서), `test/*.test.mjs`, `api/ai.js`·`api/threat-intel.js`(미구현 뼈대) |
+| **학생 몫 — 판정기** | `src/decider.mjs` (시작 틀 파일을 고침: `RULE_IDS` 7개 규칙) |
+| **학생 몫 — 탐지 규칙** | `src/detect.mjs` (시작 틀 파일을 고침: `doppelganger_burst`, 회수 제안 `burst_read`) |
+| **학생 몫 — 접속 앱** | `public/index.html`(화면·기기 승인·작전실·실측 표), `public/manifest.webmanifest`, `public/icon-*.png`, `api/device.js`, `api/session.js`, `src/device-auth.mjs`, `src/device-guard.mjs`, `supabase/step11_devices.sql` |
+| **학생 몫 — 자료실** | `api/notes.js`·`api/notices.js`·`api/restore.js`·`api/operations.js`, `src/owner-key.mjs`·`src/resources.mjs`·`src/note-hash.mjs`·`src/backup-seal.mjs`·`src/auth-log.mjs`·`src/request-trace.mjs`·`src/policy-*.mjs`, `scripts/policy-*.mjs`·`scripts/backup-verify.mjs`, `supabase/step3~step10*.sql`, 시작 틀에서 고친 `src/attack-check.mjs`·`scripts/build-public.mjs`·`scripts/deployment-identity.mjs`·`vercel.json`·`package.json` |
+| 외부 서비스(학생 계정) | Supabase(로그인·DB), Vercel(배포·서버 함수 실행). 키·비밀번호는 각 서비스의 설정 화면에만 있습니다. |
+
+### 포장하지 않는 것(비밀값·개인 자료)
+
+- `SUPABASE_SECRET_KEY`·계정 비밀번호·로그인 토큰·패스키 개인키는 저장소·로그·제출 묶음에 없습니다. 서버 키는 Vercel **Settings → Environment Variables**에만, 패스키 개인키는 기기(운영체제)에만 있습니다.
+- 메모 문장이 든 SQL은 올리지 않습니다: 2단계 이전 SQL(`supabase/step2_vault_notes.sql`)은 `.gitignore`로 제외하고, 4단계 B 시험 메모 SQL은 저장소 폴더 밖에만 둡니다.
+- `bundle-notes.json`·`artifacts/submission.json`·`.env*`·`node_modules/`는 커밋하지 않습니다.
+
+### 재현 순서(처음부터)
+
+1. **받기·설치**: `git clone https://github.com/jeonjieun03/choi-bujang-secret-vault && cd choi-bujang-secret-vault && git checkout 2e902cd && npm install` (Node.js 22 이상, 의존 패키지 `@supabase/supabase-js`·`jose` 두 개).
+2. **로컬 확인**(배포·심판 판정이 아님): `npm run build -- --local`, `npm run test:r5`, `npm run decider:test`, `npm run detect:test`.
+3. **DB 준비**: 학습용 Supabase SQL Editor에서 「다시 실행하는 방법」 1번의 SQL을 적힌 순서대로 실행합니다(마지막이 `supabase/step11_devices.sql`).
+4. **서버 키 넣기**: Vercel Settings → Environment Variables(Production)에 `SUPABASE_URL`·`SUPABASE_SECRET_KEY`를 학생이 직접 넣습니다.
+5. **배포**: main에 푸시하면 Vercel이 새로 받아 `npm install`·`npm run build`를 실행하고 `/aleph.json`에 커밋·단계·허용 경로를 적습니다. `/aleph.json`의 `commit`이 검사한 커밋인지 확인합니다.
+6. **접속 앱 실행**: 배포 주소 → 로그인 → 「이 기기 승인 요청」(서버 명단에 `pending`) → Supabase에서 그 기기 줄의 `status`를 `approved`로 변경 → 「승인 확인하고 자료실 열기」(서버가 패스키·명단을 확인하고 판정기 `decide()`가 `allow`일 때만 기기 세션). 앱 설치 여부는 승인과 무관합니다.
+7. **작전실 확인**: 자료실 아래 「탈환 작전실」에서 판정기 규칙·탐지 사건(운영 엔진 미연결이라 미실행)·회수 상태·복구 버전을 봅니다. Vercel Logs의 `operations: summary` 줄(같은 요청 ID)과 수치를 대조합니다.
+8. **실측 표**: 「1~11단계 실측 표 만들기」로 정상·금지 요청을 실제 배포에 보내고, 표의 요청 ID를 Vercel Logs에서 검색해 `trace: … status=` 줄이 표와 같은지 봅니다. 쓰기·다른 계정·운영 엔진 요청과 41종 총공세는 미실행으로 남습니다.
+9. **제출 묶음**: `bundle-notes.json`을 만든 뒤 `npm run bundle`. 12단계 점검은 공개 GET만 실제로 보내고 나머지는 `not_run`으로 적습니다.
+
+### 구성 요소별 설치·실행·중지·복구
+
+| 구성 요소 | 설치 | 실행 | 중지 | 복구 |
+|---|---|---|---|---|
+| 학생 판정기 `src/decider.mjs` | 재현 1번(외부 모듈 없음) | 운영: ALEPH SDP 엔진이 `decide(request)` 호출. 이 앱: `api/device.js`가 기기 승인 때 호출. 연습: `npm run decider:test`, `npm run fixture:7` | 엔진 쪽 경로 허용 끄기는 운영 측 권한입니다. 학생 쪽에서는 기기를 `revoked`로 바꾸면 새 기기 세션이 나가지 않습니다 | `git checkout 2e902cd -- src/decider.mjs` → 커밋·푸시(재배포) → `npm run decider:test` |
+| 탐지 규칙 `src/detect.mjs` | 재현 1번 | 운영: 엔진이 사건을 전달하면 `detect(events)` 호출(현재 운영 사건 전달 미연결, 작전실에 미실행 표시). 연습: `npm run detect:test` | 운영 측 권한(사건 전달 끄기) | `git checkout 2e902cd -- src/detect.mjs` → 커밋·푸시 → `npm run detect:test` |
+| 접속 앱 `public/`·`api/device.js`·`api/session.js` | 재현 3번의 `step11_devices.sql`, 재현 5번 배포. 브라우저 「앱 설치」는 선택(승인 아님) | 재현 6번. 로그인·기기 세션은 화면 메모리에만 있어 새로고침하면 다시 로그인 | 로그아웃. 기기 회수: Supabase에서 `update public.vault_devices set status = 'revoked' where device_id = '<기기 16자리>';` → 그 기기의 다음 보호 요청부터 403 | 회수한 기기를 다시 `approved`로 바꾸거나 새로 승인 요청. 코드는 `git checkout 2e902cd -- public api/device.js api/session.js` → 커밋·푸시 |
+| 자료실 `api/notes·notices·restore·operations`, Supabase 표 | 재현 3~5번 | 재현 5~8번 | 전체 중지: Vercel에서 `SUPABASE_SECRET_KEY`를 지우고 Redeploy하면 로그인·자료 API(`session`·`notes`·`notices`·`restore`·`operations`·`device`)가 자료 없이 500(`SERVER_NOT_CONFIGURED`)으로 멈춤. 배포 되돌리기: Vercel Instant Rollback(이후 새 배포는 자동 연결되지 않으니 복구 때 Promote) | 코드: 검사한 커밋의 배포를 Deployments에서 **Promote** 하거나 `git checkout 2e902cd`로 되돌려 푸시. 메모 한 건: 화면 「ID로 복원」(`POST /api/notes/:id/restore`, 봉인 검증). 정책: SQL Editor에서 `select public.vault_policy_restore('s4-rls-v1', false);`로 미리 본 뒤 `true`로 실행. 복구 뒤 재시험: 재현 7~9번 |
+
+로컬에서 Vercel 개발 서버(`vercel dev`)로 API를 띄우는 방법은 확인하지 않았습니다(미실행). 실제 API 확인은 Vercel 배포에서 했습니다.
+
 ## 남아 있는 약점
 
 - 11단계 패스키를 Google 비밀번호 관리자 같은 동기화 저장소에 만들면 같은 계정의 다른 기기에서도 쓰일 수 있습니다. 서버 명단의 승인·`revoked`로 관리합니다.
-- 로그인 세션은 10단계와 같이 이 브라우저에 유지되고, 기기 세션은 화면 메모리에만 있어 새로고침하면 기기 확인을 다시 합니다.
+- 로그인 세션(토큰)과 기기 세션은 화면 메모리에만 있습니다(11단계 `31366c2`부터 브라우저 저장소 미사용). 새로고침하거나 창을 닫으면 다시 로그인하고 기기 승인 확인을 다시 합니다.
 
 - 1단계 커밋(`cf6ab50`)과 그 배포 기록에는 가상 메모가 남아 있습니다. 최신 파일에서 지워도 Git 이력과 이전 배포는 지워지지 않습니다.
 - 자기 점검(`npm run bundle`)은 로그인 없는 요청만 자동으로 보냅니다. A·B 로그인이 필요한 점검은 미실행으로 기록하며, 화면에서 학생이 직접 확인했습니다.
