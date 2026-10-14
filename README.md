@@ -240,6 +240,15 @@
 - 다시 실행: `npm run xdr:run -- privilege`(결과 `result.json`), `node xdr/privilege/respond.mjs`(규칙·알림 갱신과 재생 확인).
 - 시험 경보 결과: block 9 · alert 8 · record 9, 정상 이벤트 block 없음.
 
+## 보너스 xdr-06: 자료 빼돌리기 탐지 (`xdr/exfiltration/`)
+
+- `read-alerts.mjs`: 확인용. `xdr/fixtures/exfiltration.json` 경보에서 경보 번호·시각·출발 주소·계정·규칙 수준·설명만 뽑고 비밀값처럼 보이는 값은 가립니다. 목적지·전송량·파일 수·PC 이름은 뽑지 않습니다. `decide.mjs`는 이 파일을 불러오지 않습니다.
+- `patterns.json`: MITRE ATT&CK 근거의 세 패턴. 처음 보는 목적지로 대용량 전송(`new-destination-bulk-transfer`, T1048), 업무 시간 밖 압축 파일 반출(`off-hours-archive-exfil`, 반출 T1048·압축 MITRE 분류 T1560), 명령 통로로 유출(`c2-channel-exfil`, T1041). 패턴마다 찾는 조건과 근거 한 줄이 있습니다.
+- `decide.mjs`: 패턴을 상수로 담고 `decide(alert)`가 대용량(50MB 이상) 전송에 유출 정황(처음 보는 목적지·업무 시간 밖·명령 통로·반복·자료실 전체·많은 파일)이 있고 평소 목적지가 아니면 확신도 0.85 이상 `block`, 처음 보는 주소·평소보다 큰 전송이지만 뚜렷하지 않으면 0.5 이상 `alert`, 작은 평소 전송은 `record`로 돌려줍니다. import·파일 읽기·쓰기·네트워크가 없습니다.
+- `respond.mjs`: `block`만 자료가 빠져나간 목적지 주소의 거부 규칙(만료 60분, 근거 경보 번호)으로 `deny-rules.json`에 만들고, `alert`·`block`은 `xdr/alerts.log`에 한 줄씩 쌓습니다(중복 없음). 정상 이벤트가 쓴 목적지(자료실·수업 자료 주소)는 규칙에서 빼고, 보낸 사람(출발 주소·계정)은 막지 않습니다. 판정기의 기존 규칙은 고치지 않습니다.
+- 다시 실행: `npm run xdr:run -- exfiltration`(결과 `result.json`), `node xdr/exfiltration/respond.mjs`(규칙·알림 갱신과 재생 확인).
+- 시험 경보 결과: block 10 · alert 10 · record 10, 정상 이벤트 block 없음.
+
 ## 다음 단계의 코딩 도구에 전달할 규칙
 
 [AGENTS.md](AGENTS.md)를 먼저 읽히고 한 번에 한 제작 단위만 요청하세요. 2단계부터는 자료 보호를 구현할 때 `public/data.json`을 복사하는 1단계 빌드 흐름도 함께 바꿔야 합니다. 3단계 이후의 로그인, 허용 경로, 5단계의 원본 API 주소, 6단계 이후 정책 규칙은 해당 단계 원고와 계약에 맞춰 추가합니다. 비밀번호·토큰·서버 전용 키·실제 학생 기록을 코드, Git, 제출 묶음에 넣지 않습니다.
