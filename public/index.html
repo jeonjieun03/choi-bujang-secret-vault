@@ -131,7 +131,7 @@
       <div id="ops-body"></div>
       <!-- 12단계 제작 2: 1~11단계 정상·금지 요청 실측 표 -->
       <h3>1~11단계 정상·금지 요청 실측 표</h3>
-      <small>버튼을 누르면 이 브라우저가 지금 로그인과 승인된 기기로 아래 요청을 실제 배포에 보내고, 받은 HTTP 상태를 그대로 적습니다. 요청 ID는 Vercel이 응답마다 붙이는 x-vercel-id(Vercel 로그에서 같은 요청을 찾을 수 있음)이고, 확인 시각은 응답을 받은 시각입니다. 「기대와 같음/다름」은 실제 상태 코드를 기대 코드와 비교한 결과일 뿐 심판 판정이 아닙니다. 쓰기 요청, 다른 계정이 필요한 요청, 운영 엔진이 보내는 요청, 41종 총공세는 보내지 않고 「미실행」으로 남깁니다. 메모 본문·제목·토큰은 표에 넣지 않습니다.</small>
+      <small>버튼을 누르면 이 브라우저가 지금 로그인과 승인된 기기로 아래 요청을 실제 배포에 보내고, 받은 HTTP 상태를 그대로 적습니다. 요청 ID는 이 화면이 요청마다 만들어 보낸 값으로, 서버 함수가 같은 ID로 「trace:」 로그를 남깁니다(Vercel Logs에서 ID로 검색). 함수를 거치지 않는 정적 파일은 Vercel의 x-vercel-id를 적습니다. 확인 시각은 응답을 받은 시각입니다. 「기대와 같음/다름」은 실제 상태 코드를 기대 코드와 비교한 결과일 뿐 심판 판정이 아닙니다. 쓰기 요청, 다른 계정이 필요한 요청, 운영 엔진이 보내는 요청, 41종 총공세는 보내지 않고 「미실행」으로 남깁니다. 메모 본문·제목·토큰은 표에 넣지 않습니다.</small>
       <div class="row"><button id="verify-run" class="btn ghost" type="button">1~11단계 실측 표 만들기</button></div>
       <small id="verify-meta"></small>
       <div id="verify-body"></div>
@@ -390,7 +390,8 @@
       [12, '금지', '41종 총공세', '-', null, '', '', null, '모두 방어', '심판이 보내는 시험이라 이 화면에서 실행하지 않음'],
     ];
     async function probeRequest(path, auth, deviceMode) {
-      const headers = { Accept: 'application/json' };
+      const ownId = RANDOM_ID();
+      const headers = { Accept: 'application/json', 'X-Request-Id': ownId };
       if (auth === 'bad') headers.Authorization = 'Bearer not.a.token';
       if (auth === 'good') headers.Authorization = `Bearer ${currentSession.access_token}`;
       if (deviceMode === 'good') headers['X-Device-Session'] = device.sessionId;
@@ -398,7 +399,11 @@
       const response = await fetch(path, { method: 'GET', headers, cache: 'no-store', credentials: 'omit' });
       const checkedAt = new Date().toISOString();
       const data = await response.json().catch(() => null);
-      return { status: response.status, requestId: response.headers.get('x-vercel-id') ?? '-', checkedAt,
+      // 서버 함수는 받은 요청 ID를 X-Request-Id 로 돌려주고 같은 ID로 trace 로그를 남깁니다.
+      // 정적 파일은 함수를 거치지 않아 함수 로그가 없으므로 Vercel 의 x-vercel-id 를 적고 그렇게 표시합니다.
+      const echoed = response.headers.get('x-request-id');
+      const requestId = echoed === ownId ? ownId : `${response.headers.get('x-vercel-id') ?? '-'} (정적 파일·함수 로그 없음)`;
+      return { status: response.status, requestId, checkedAt,
         error: typeof data?.error === 'string' ? data.error : null, count: Array.isArray(data) ? data.length : null,
         firstId: Array.isArray(data) && typeof data[0]?.id === 'string' ? data[0].id : null };
     }

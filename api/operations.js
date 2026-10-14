@@ -5,6 +5,7 @@ import { createLoginVerifier } from '../src/verify-login.mjs';
 import { ownerKeyOf } from '../src/owner-key.mjs';
 import { logAuthReject } from '../src/auth-log.mjs';
 import { requireApprovedDevice } from '../src/device-guard.mjs';
+import { traceRequest } from '../src/request-trace.mjs';
 import { RULE_IDS } from '../src/decider.mjs';
 import { DETECT_RULE_ID } from '../src/detect.mjs';
 
@@ -42,6 +43,7 @@ function throwIf(error) { if (error) throw error; }
 
 export default async function handler(request, response) {
   response.setHeader('Cache-Control', 'no-store');
+  traceRequest('operations', request, response); // 12단계: 요청 ID·상태 코드 추적 기록(관측만)
   if ((request.method ?? 'GET') !== 'GET') {
     response.setHeader('Allow', 'GET');
     return fail(response, 405, 'METHOD_NOT_ALLOWED');

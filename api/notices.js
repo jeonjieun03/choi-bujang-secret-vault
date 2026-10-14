@@ -5,6 +5,7 @@ import { resourceId } from '../src/resources.mjs';
 import { ownerKeyOf } from '../src/owner-key.mjs';
 import { logAuthReject } from '../src/auth-log.mjs';
 import { requireApprovedDevice } from '../src/device-guard.mjs';
+import { traceRequest } from '../src/request-trace.mjs';
 
 const require = createRequire(import.meta.url);
 const config = require('../aleph.config.json');
@@ -54,6 +55,7 @@ function noticeIdFrom(request) {
 
 export default async function handler(request, response) {
   response.setHeader('Cache-Control', 'no-store');
+  traceRequest('notices', request, response); // 12단계: 요청 ID·상태 코드 추적 기록(관측만)
 
   const id = noticeIdFrom(request);
   const method = request.method ?? 'GET';

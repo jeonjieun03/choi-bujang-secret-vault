@@ -7,6 +7,7 @@ import { ownerKeyOf } from '../src/owner-key.mjs';
 import { logAuthReject } from '../src/auth-log.mjs';
 import { noteContentSha256 } from '../src/note-hash.mjs';
 import { requireApprovedDevice } from '../src/device-guard.mjs';
+import { traceRequest } from '../src/request-trace.mjs';
 import { backupSeal } from '../src/backup-seal.mjs';
 
 const require = createRequire(import.meta.url);
@@ -80,6 +81,7 @@ function dbError(response, error, action) {
 
 export default async function handler(request, response) {
   response.setHeader('Cache-Control', 'no-store');
+  traceRequest('notes', request, response); // 12단계: 요청 ID·상태 코드 추적 기록(관측만)
 
   const id = noteIdFrom(request);
   const method = request.method ?? 'GET';
