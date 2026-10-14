@@ -66,3 +66,20 @@
 2026-09-27T04:19:27.000Z | alert | ps-14 | 203.0.113.49 | user06 | confidence 0.60 | startup-folder-change 의심: 생기거나 바뀌었지만 서명 없음·평소 목록 밖이 확인되지 않음
 2026-09-27T05:08:14.000Z | alert | ps-15 | 192.0.2.53 | user07 | confidence 0.65 | unfamiliar-scheduled-task 의심: 생기거나 바뀌었지만 서명 없음·평소 목록 밖이 확인되지 않음
 2026-09-27T06:16:42.000Z | alert | ps-16 | 198.51.100.53 | svc-lab | confidence 0.60 | unsigned-new-service 의심: 생기거나 바뀌었지만 서명 없음·평소 목록 밖이 확인되지 않음
+2026-09-27T00:15:06.000Z | block | pv-01 | 203.0.113.11 | user01 | confidence 0.89 | admin-group-addition (T1068·T1078): 평소와 다른 권한 상승
+2026-09-27T00:15:40.000Z | block | pv-02 | 203.0.113.11 | user01 | confidence 0.89 | unfamiliar-admin-command (T1068·T1078): 평소와 다른 권한 상승
+2026-09-27T01:03:12.000Z | block | pv-03 | 198.51.100.11 | user02 | confidence 0.90 | unfamiliar-admin-command + off-hours-privilege-use (T1068·T1078): 평소와 다른 권한 상승
+2026-09-27T01:19:08.000Z | block | pv-04 | 192.0.2.11 | user03 | confidence 0.94 | admin-group-addition + unfamiliar-admin-command (T1068·T1078): 평소와 다른 권한 상승
+2026-09-27T02:06:21.000Z | block | pv-05 | 203.0.113.17 | user04 | confidence 0.89 | admin-group-addition (T1068·T1078): 평소와 다른 권한 상승 · 4건
+2026-09-27T04:08:02.000Z | block | pv-06 | 198.51.100.17 | user05 | confidence 0.89 | unfamiliar-admin-command (T1068·T1078): 평소와 다른 권한 상승
+2026-09-27T05:16:29.000Z | block | pv-07 | 192.0.2.17 | user06 | confidence 0.92 | admin-group-addition + off-hours-privilege-use (T1068·T1078): 평소와 다른 권한 상승
+2026-09-27T06:02:18.000Z | block | pv-08 | 203.0.113.27 | user07 | confidence 0.89 | unfamiliar-admin-command (T1068·T1078): 평소와 다른 권한 상승
+2026-09-27T06:33:07.000Z | block | pv-09 | 198.51.100.27 | user08 | confidence 0.89 | admin-group-addition (T1068·T1078): 평소와 다른 권한 상승 · 2건
+2026-09-27T00:26:14.000Z | alert | pv-10 | 192.0.2.54 | user01 | confidence 0.60 | unfamiliar-admin-command 의심 (T1068·T1078): 권한·그룹 변화가 있지만 뚜렷하지 않음
+2026-09-27T01:14:33.000Z | alert | pv-11 | 198.51.100.54 | user02 | confidence 0.65 | admin-group-addition 의심 (T1068·T1078): 권한·그룹 변화가 있지만 뚜렷하지 않음
+2026-09-27T01:47:09.000Z | alert | pv-12 | 203.0.113.54 | user03 | confidence 0.60 | unfamiliar-admin-command 의심 (T1068·T1078): 권한·그룹 변화가 있지만 뚜렷하지 않음
+2026-09-27T02:21:16.000Z | alert | pv-13 | 192.0.2.55 | user04 | confidence 0.60 | admin-group-addition 의심 (T1068·T1078): 권한·그룹 변화가 있지만 뚜렷하지 않음
+2026-09-27T03:06:48.000Z | alert | pv-14 | 198.51.100.55 | user05 | confidence 0.65 | unfamiliar-admin-command 의심 (T1068·T1078): 권한·그룹 변화가 있지만 뚜렷하지 않음
+2026-09-27T04:17:05.000Z | alert | pv-15 | 203.0.113.55 | user06 | confidence 0.60 | admin-group-addition 의심 (T1068·T1078): 권한·그룹 변화가 있지만 뚜렷하지 않음
+2026-09-27T05:07:22.000Z | alert | pv-16 | 192.0.2.56 | user07 | confidence 0.65 | unfamiliar-admin-command 의심 (T1068·T1078): 권한·그룹 변화가 있지만 뚜렷하지 않음
+2026-09-27T06:19:41.000Z | alert | pv-17 | 198.51.100.56 | user08 | confidence 0.60 | admin-group-addition 의심 (T1068·T1078): 권한·그룹 변화가 있지만 뚜렷하지 않음

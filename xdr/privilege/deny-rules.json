@@ -1,0 +1,119 @@
+{
+  "schema": "aleph.xdr.deny-rules.v1",
+  "moduleKey": "privilege",
+  "rules": [
+    {
+      "ruleId": "xdr.privilege.revoke_session",
+      "action": "deny",
+      "match": {
+        "srcuser": "user01",
+        "srcip": "203.0.113.11"
+      },
+      "createdAt": "2026-09-27T00:15:06.000Z",
+      "expiresAt": "2026-09-27T01:15:40.000Z",
+      "evidenceAlertIds": [
+        "pv-01",
+        "pv-02"
+      ],
+      "reason": "admin-group-addition (T1068·T1078): 평소와 다른 권한 상승"
+    },
+    {
+      "ruleId": "xdr.privilege.revoke_session",
+      "action": "deny",
+      "match": {
+        "srcuser": "user02",
+        "srcip": "198.51.100.11"
+      },
+      "createdAt": "2026-09-27T01:03:12.000Z",
+      "expiresAt": "2026-09-27T02:03:12.000Z",
+      "evidenceAlertIds": [
+        "pv-03"
+      ],
+      "reason": "unfamiliar-admin-command + off-hours-privilege-use (T1068·T1078): 평소와 다른 권한 상승"
+    },
+    {
+      "ruleId": "xdr.privilege.revoke_session",
+      "action": "deny",
+      "match": {
+        "srcuser": "user03",
+        "srcip": "192.0.2.11"
+      },
+      "createdAt": "2026-09-27T01:19:08.000Z",
+      "expiresAt": "2026-09-27T02:19:08.000Z",
+      "evidenceAlertIds": [
+        "pv-04"
+      ],
+      "reason": "admin-group-addition + unfamiliar-admin-command (T1068·T1078): 평소와 다른 권한 상승"
+    },
+    {
+      "ruleId": "xdr.privilege.revoke_session",
+      "action": "deny",
+      "match": {
+        "srcuser": "user04",
+        "srcip": "203.0.113.17"
+      },
+      "createdAt": "2026-09-27T02:06:21.000Z",
+      "expiresAt": "2026-09-27T03:06:21.000Z",
+      "evidenceAlertIds": [
+        "pv-05"
+      ],
+      "reason": "admin-group-addition (T1068·T1078): 평소와 다른 권한 상승 · 4건"
+    },
+    {
+      "ruleId": "xdr.privilege.revoke_session",
+      "action": "deny",
+      "match": {
+        "srcuser": "user05",
+        "srcip": "198.51.100.17"
+      },
+      "createdAt": "2026-09-27T04:08:02.000Z",
+      "expiresAt": "2026-09-27T05:08:02.000Z",
+      "evidenceAlertIds": [
+        "pv-06"
+      ],
+      "reason": "unfamiliar-admin-command (T1068·T1078): 평소와 다른 권한 상승"
+    },
+    {
+      "ruleId": "xdr.privilege.revoke_session",
+      "action": "deny",
+      "match": {
+        "srcuser": "user06",
+        "srcip": "192.0.2.17"
+      },
+      "createdAt": "2026-09-27T05:16:29.000Z",
+      "expiresAt": "2026-09-27T06:16:29.000Z",
+      "evidenceAlertIds": [
+        "pv-07"
+      ],
+      "reason": "admin-group-addition + off-hours-privilege-use (T1068·T1078): 평소와 다른 권한 상승"
+    },
+    {
+      "ruleId": "xdr.privilege.revoke_session",
+      "action": "deny",
+      "match": {
+        "srcuser": "user07",
+        "srcip": "203.0.113.27"
+      },
+      "createdAt": "2026-09-27T06:02:18.000Z",
+      "expiresAt": "2026-09-27T07:02:18.000Z",
+      "evidenceAlertIds": [
+        "pv-08"
+      ],
+      "reason": "unfamiliar-admin-command (T1068·T1078): 평소와 다른 권한 상승"
+    },
+    {
+      "ruleId": "xdr.privilege.revoke_session",
+      "action": "deny",
+      "match": {
+        "srcuser": "user08",
+        "srcip": "198.51.100.27"
+      },
+      "createdAt": "2026-09-27T06:33:07.000Z",
+      "expiresAt": "2026-09-27T07:33:07.000Z",
+      "evidenceAlertIds": [
+        "pv-09"
+      ],
+      "reason": "admin-group-addition (T1068·T1078): 평소와 다른 권한 상승 · 2건"
+    }
+  ]
+}
