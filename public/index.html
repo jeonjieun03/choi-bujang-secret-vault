@@ -129,6 +129,12 @@
       <div class="row"><button id="ops-refresh" class="btn ghost" type="button">작전실 새로고침</button></div>
       <small id="ops-meta"></small>
       <div id="ops-body"></div>
+      <!-- 12단계 제작 2: 1~11단계 정상·금지 요청 실측 표 -->
+      <h3>1~11단계 정상·금지 요청 실측 표</h3>
+      <small>버튼을 누르면 이 브라우저가 지금 로그인과 승인된 기기로 아래 요청을 실제 배포에 보내고, 받은 HTTP 상태를 그대로 적습니다. 요청 ID는 Vercel이 응답마다 붙이는 x-vercel-id(Vercel 로그에서 같은 요청을 찾을 수 있음)이고, 확인 시각은 응답을 받은 시각입니다. 「기대와 같음/다름」은 실제 상태 코드를 기대 코드와 비교한 결과일 뿐 심판 판정이 아닙니다. 쓰기 요청, 다른 계정이 필요한 요청, 운영 엔진이 보내는 요청, 41종 총공세는 보내지 않고 「미실행」으로 남깁니다. 메모 본문·제목·토큰은 표에 넣지 않습니다.</small>
+      <div class="row"><button id="verify-run" class="btn ghost" type="button">1~11단계 실측 표 만들기</button></div>
+      <small id="verify-meta"></small>
+      <div id="verify-body"></div>
     </section>
   </main>
 
@@ -356,6 +362,89 @@
       else { opsSeq += 1; $('#ops-meta').textContent = ''; $('#ops-body').replaceChildren(); }
     }
     $('#ops-refresh').addEventListener('click', () => loadOps());
+
+    // ── 12단계 제작 2: 1~11단계 정상·금지 요청 실측 표 ──
+    // 각 줄: [단계, 구분, 요청 설명, 방법, 경로(함수 가능), 로그인('none'|'bad'|'good'), 기기 세션('none'|'fake'|'good'), 기대 상태, 기대 설명]
+    // 경로가 null 이면 보내지 않는 줄(미실행)이고, 마지막 칸에 이유를 적습니다. 요청은 모두 읽기(GET)만 보냅니다.
+    const RANDOM_ID = () => crypto.randomUUID();
+    const VERIFY_CASES = [
+      [2, '금지', '정적 /data.json 공개 사본', 'GET', '/data.json', 'none', 'none', 404, '없음(404)'],
+      [3, '금지', '로그인 없는 메모 목록', 'GET', '/api/notes', 'none', 'none', 401, '거부(401)'],
+      [3, '금지', '형식이 틀린 토큰의 메모 목록', 'GET', '/api/notes', 'bad', 'none', 401, '거부(401)'],
+      [3, '정상', '로그인·승인 기기로 내 메모 목록', 'GET', '/api/notes', 'good', 'good', 200, '허용(200)'],
+      [4, '정상', '내 메모 한 건 조회(목록 첫 메모)', 'GET', ctx => (ctx.firstId ? `/api/notes/${ctx.firstId}` : null), 'good', 'good', 200, '허용(200)', '내 메모가 없어 보낼 ID가 없음'],
+      [4, '금지', '남의 메모·없는 메모 ID 조회', 'GET', () => `/api/notes/${RANDOM_ID()}`, 'good', 'good', 404, '거부(404)'],
+      [4, '금지', '주소 쿼리로 다른 사용자·강사 행세', 'GET', () => `/api/notes?userId=${RANDOM_ID()}&role=instructor`, 'good', 'good', 200, '쿼리 신원 무시, 내 메모만(200·내 목록과 같은 수)'],
+      [5, '금지', '원본 자료 API 직접 조회', 'GET', null, '', '', null, '거부(401·403)', '다른 주소(원본 API)라 이 화면에서 보내지 않음 — 5단계 기록 참고'],
+      [6, '금지', '로그인했지만 기기 세션 없음', 'GET', '/api/notes', 'good', 'none', 403, '거부(403)'],
+      [6, '금지', '위조한 기기 세션', 'GET', '/api/notes', 'good', 'fake', 403, '거부(403)'],
+      [7, '금지', '복합 이상 접속(추가 확인 요구)', 'GET', null, '', '', null, 'step_up', '운영 엔진이 판정기를 부르는 요청이라 보내지 않음(npm run decider:test 는 가상 연습)'],
+      [8, '금지', '학생의 강사 공지 목록', 'GET', '/api/notices', 'good', 'good', 403, '거부(403)'],
+      [8, '금지', '메모 ID 자리에 기능 이름(export)', 'GET', '/api/notes/export', 'good', 'good', 400, '거부(400)'],
+      [8, '금지', '학생의 강사 공지 수정', 'PUT', null, '', '', null, '거부(403)', '쓰기 요청이라 자동으로 보내지 않음'],
+      [9, '금지', '대량 조회 탐지·회수 제안', 'GET', null, '', '', null, 'propose_revocation', '운영 엔진 사건 전달이 연결되지 않아 보내지 않음(npm run detect:test 는 가상 연습)'],
+      [10, '금지', '로그인 없는 메모 복원', 'POST', null, '', '', null, '거부(401)', '쓰기 요청이라 자동으로 보내지 않음'],
+      [11, '정상', '접속 앱 manifest', 'GET', '/manifest.webmanifest', 'none', 'none', 200, '공개(200)'],
+      [11, '정상', '승인 기기로 탈환 작전실 요약', 'GET', '/api/operations', 'good', 'good', 200, '허용(200)'],
+      [11, '금지', '기기 세션 없는 탈환 작전실 요약', 'GET', '/api/operations', 'good', 'none', 403, '거부(403)'],
+      [12, '금지', '41종 총공세', '-', null, '', '', null, '모두 방어', '심판이 보내는 시험이라 이 화면에서 실행하지 않음'],
+    ];
+    async function probeRequest(path, auth, deviceMode) {
+      const headers = { Accept: 'application/json' };
+      if (auth === 'bad') headers.Authorization = 'Bearer not.a.token';
+      if (auth === 'good') headers.Authorization = `Bearer ${currentSession.access_token}`;
+      if (deviceMode === 'good') headers['X-Device-Session'] = device.sessionId;
+      if (deviceMode === 'fake') headers['X-Device-Session'] = RANDOM_ID();
+      const response = await fetch(path, { method: 'GET', headers, cache: 'no-store', credentials: 'omit' });
+      const checkedAt = new Date().toISOString();
+      const data = await response.json().catch(() => null);
+      return { status: response.status, requestId: response.headers.get('x-vercel-id') ?? '-', checkedAt,
+        error: typeof data?.error === 'string' ? data.error : null, count: Array.isArray(data) ? data.length : null,
+        firstId: Array.isArray(data) && typeof data[0]?.id === 'string' ? data[0].id : null };
+    }
+    let verifyRunning = false;
+    async function runVerifyTable() {
+      if (verifyRunning) return;
+      const meta = $('#verify-meta');
+      const body = $('#verify-body');
+      if (!currentSession?.access_token || !device) { meta.textContent = '로그인과 기기 승인 확인 뒤에 실행할 수 있습니다.'; return; }
+      verifyRunning = true;
+      $('#verify-run').disabled = true;
+      body.replaceChildren();
+      meta.textContent = '실제 배포에 요청을 보내는 중입니다.';
+      if (sessionExpiresSoon(currentSession)) await refreshSession();
+      const ctx = { firstId: null, ownCount: null };
+      const rows = [];
+      for (const [stage, kind, label, method, pathOf, auth, deviceMode, want, wantText, skipReason] of VERIFY_CASES) {
+        const path = typeof pathOf === 'function' ? pathOf(ctx) : pathOf;
+        const row = { stage, kind, label, request: path ? `${method} ${path.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/giu, ':id')}` : method,
+          expected: wantText, actual: '미실행', requestId: '-', checkedAt: '-', compare: skipReason ?? '보내지 않음' };
+        if (path && currentSession?.access_token && device) {
+          try {
+            const r = await probeRequest(path, auth, deviceMode);
+            if (path === '/api/notes' && auth === 'good' && deviceMode === 'good' && r.status === 200) { ctx.firstId = r.firstId; ctx.ownCount = r.count; }
+            row.actual = `HTTP ${r.status}${r.error ? ` · ${r.error}` : ''}${r.count !== null ? ` · ${r.count}건` : ''}`;
+            row.requestId = r.requestId;
+            row.checkedAt = r.checkedAt;
+            const sameCount = !label.startsWith('주소 쿼리') || r.count === ctx.ownCount;
+            row.compare = r.status === want && sameCount ? '기대와 같음' : '기대와 다름';
+          } catch {
+            row.compare = '요청을 보내지 못함(네트워크)';
+          }
+        }
+        rows.push(row);
+      }
+      const sent = rows.filter(r => r.actual !== '미실행');
+      const differ = sent.filter(r => r.compare !== '기대와 같음').length;
+      meta.textContent = `실제로 보낸 요청 ${sent.length}건(정상 ${sent.filter(r => r.kind === '정상').length} · 금지 ${sent.filter(r => r.kind === '금지').length}) · 기대와 다름 ${differ}건 · 미실행 ${rows.length - sent.length}건(41종 총공세 포함). 판정은 심판이 합니다.`;
+      body.replaceChildren(el('table', {},
+        el('thead', {}, el('tr', {}, ...['단계', '구분', '요청 설명', '요청', '기대 결과', '실제 API 결과', '요청 ID', '확인 시각', '비교'].map(t => el('th', { textContent: t })))),
+        el('tbody', {}, ...rows.map(r => el('tr', {}, ...[r.stage, r.kind, r.label, r.request, r.expected, r.actual, r.requestId, r.checkedAt, r.compare]
+          .map(v => el('td', { textContent: String(v) })))))));
+      verifyRunning = false;
+      $('#verify-run').disabled = false;
+    }
+    $('#verify-run').addEventListener('click', () => { runVerifyTable().catch(() => { verifyRunning = false; $('#verify-run').disabled = false; $('#verify-meta').textContent = '실측 표를 만들지 못했습니다.'; }); });
 
     let loadSeq = 0;
 

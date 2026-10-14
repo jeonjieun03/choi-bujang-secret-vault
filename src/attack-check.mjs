@@ -1,6 +1,7 @@
 // The student changes this check as each stage adds an attack to the same app.
 // Never return tokens, private keys, real names, or note bodies.
 export async function runAttackChecks(config) {
+  if (config.step === 12) return runStep12Checks(config);
   if (config.step >= 3 && config.step <= 11) return runStep3Checks(config);
   if (config.step !== 1) throw new Error('이 단계의 공격 점검을 src/attack-check.mjs에 구현해 주세요.');
   let app;
@@ -61,6 +62,59 @@ async function statusOf(app, path, init = {}, origin = 'vercel') {
   } catch (error) {
     return { error: error?.name === 'TimeoutError' ? '시간 초과' : '네트워크 오류' };
   }
+}
+
+// 12단계 묶음 점검: 심판이 격리 환경에서 npm run bundle 을 다시 실행해 실제 요청 기록과 대조합니다.
+// - 공개 배포 주소에 로그인 없이(또는 엉터리 토큰으로) 보낼 수 있는 GET 요청만 실제로 보냅니다.
+// - 요청마다 fetch 옵션 alephEvidence 에 같은 점검 ID(caseId)를 붙여 실행기가 요청과 결과를 연결하게 합니다(헤더·주소에는 넣지 않음).
+// - observed 에는 실제 응답의 HTTP 상태만 적습니다. 보내지 않은 점검(쓰기 요청, 로그인·다른 계정이 필요한 요청,
+//   로컬 판정기·탐지기 연습, 운영 엔진이 보내는 요청)은 not_run 입니다. 통과·막음을 짐작으로 적지 않습니다.
+// - 로그인이 필요한 정상·금지 요청의 실측 표(요청 ID·확인 시각 포함)는 작전실 화면의 「1~11단계 실측 표 만들기」로 만듭니다.
+// 이 점검은 다른 모듈을 불러오지 않습니다(전역 fetch 만 사용).
+const STEP12_PROBE_ID = '00000000-0000-4000-8000-000000000000';
+const STEP12_SENT = [
+  // [attackId, 경로, 추가 헤더, 기대 결과]
+  ['anonymous_page', '/', {}, '정상: 비로그인 첫 화면은 HTTP 200'],
+  ['deployment_identity', '/aleph.json', {}, '정상: 배포 식별 /aleph.json 은 HTTP 200'],
+  ['app_manifest', '/manifest.webmanifest', {}, '정상: 접속 앱 manifest 는 HTTP 200'],
+  ['static_data_json_removed', '/data.json', {}, '금지: 정적 /data.json 은 없음(HTTP 404)'],
+  ['anonymous_note_list', '/api/notes', {}, '금지: 로그인 없는 메모 목록은 HTTP 401'],
+  ['malformed_token_note_list', '/api/notes', { Authorization: 'Bearer not.a.token' }, '금지: 형식이 틀린 토큰의 메모 목록은 HTTP 401'],
+  ['anonymous_note_read_one', `/api/notes/${STEP12_PROBE_ID}`, {}, '금지: 로그인 없는 메모 한 건 조회는 HTTP 401'],
+  ['anonymous_notice_list', '/api/notices', {}, '금지: 로그인 없는 강사 공지 조회는 HTTP 401'],
+  ['anonymous_operations', '/api/operations', {}, '금지: 로그인 없는 탈환 작전실 요약은 HTTP 401'],
+];
+const STEP12_NOT_SENT = [
+  ['anonymous_note_create', '금지: 로그인 없는 메모 추가(POST)는 HTTP 401 — 쓰기 요청이라 묶음에서 보내지 않음'],
+  ['anonymous_note_restore', '금지: 로그인 없는 메모 복원(POST /api/notes/:id/restore)은 HTTP 401 — 쓰기 요청이라 묶음에서 보내지 않음'],
+  ['login_own_note_read', '정상: 로그인·승인 기기로 내 메모 목록·한 건 조회는 HTTP 200 — 로그인이 필요해 작전실 실측 표에서 확인'],
+  ['no_device_session_note_list', '금지: 로그인했지만 기기 세션이 없는 메모 조회는 HTTP 403 — 로그인이 필요해 작전실 실측 표에서 확인'],
+  ['cross_owner_note_read', '금지: 남의 메모·없는 메모 ID 조회는 HTTP 404 — 로그인이 필요해 작전실 실측 표에서 확인'],
+  ['student_notice_read', '금지: 학생 로그인의 강사 공지 조회는 HTTP 403 — 로그인이 필요해 작전실 실측 표에서 확인'],
+  ['local_decider_rules', '판정기: 미등록 기기 deny·복합 이상 step_up·구역 밖 deny — 로컬 가상 요청 연습이라 HTTP 아님(npm run decider:test)'],
+  ['local_detect_revocation', '탐지기: 새 네트워크+다량 조회는 propose_revocation — 로컬 가상 사건 연습이라 HTTP 아님(npm run detect:test)'],
+  ['engine_relay_attacks', '미등록 기기·회수된 신원·서명 없는 요청 등 41종 총공세 — 운영 엔진과 심판이 보내며 이 점검에서 보내지 않음'],
+];
+
+async function runStep12Checks(config) {
+  const app = appUrlFrom(config);
+  const observed = new Map();
+  for (const [attackId, path, headers] of STEP12_SENT) {
+    try {
+      const response = await fetch(new URL(path, app), {
+        method: 'GET', headers: { Accept: 'application/json', ...headers }, credentials: 'omit',
+        redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(10000),
+        alephEvidence: { caseId: attackId, requestKey: 'read' },
+      });
+      if (Number.isInteger(response.status)) observed.set(attackId, response.status);
+      try { await response.arrayBuffer(); } catch { /* 본문은 기록하지 않음 */ }
+    } catch { /* 요청을 보내지 못하면 not_run */ }
+  }
+  return [
+    ...STEP12_SENT.map(([attackId, , , expected]) => ({ attackId, expected,
+      observed: observed.has(attackId) ? `HTTP ${observed.get(attackId)}` : 'not_run' })),
+    ...STEP12_NOT_SENT.map(([attackId, expected]) => ({ attackId, expected, observed: 'not_run' })),
+  ];
 }
 
 async function runStep3Checks(config) {
