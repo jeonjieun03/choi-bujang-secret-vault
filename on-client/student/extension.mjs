@@ -5,18 +5,19 @@
 // - 표시는 매번 받은 값({ me, devices, sessions })만으로 새로 만듭니다. 이전 값을 저장해 두지 않으므로
 //   다시 불러오면 새 값으로 바뀌고, 오류일 때 이전 사용자 이름이 남지 않습니다.
 // - 글자는 document.createElement 와 textContent 로만 넣습니다(HTML 로 해석하는 방법은 쓰지 않음).
-// - 점검 필요(noncompliant)·만료(expired)·취소(revoked)·확인 불가(unknown)는 정상처럼 보이지 않게 "주의" 표시를 붙이고,
-//   한국어 뜻과 함께 서버가 보낸 원래 값을 괄호로 보여 줍니다.
+// - 보안 기준 미충족(noncompliant)·만료(expired)·철회됨(revoked)·확인 불가(unknown)는 정상처럼 보이지 않게 "주의" 표시를 붙이고,
+//   한국어 뜻과 함께 서버가 보낸 원래 값을 괄호로 보여 줍니다. 사용자·기기·세션은 이름(label)과 ID를 함께 보여 줍니다.
+// - 기기 보안 상태는 서버가 알려 준 보안 기준 충족 여부를 보여 줄 뿐이며, 악성코드 검사나 치료 기능이 아닙니다.
 
 const DEVICE_STATUS = Object.freeze({
-  compliant: { text: '정상', normal: true },
-  noncompliant: { text: '점검 필요', normal: false },
+  compliant: { text: '보안 기준 충족', normal: true },
+  noncompliant: { text: '보안 기준 미충족', normal: false },
   unknown: { text: '확인 불가', normal: false },
 });
 const SESSION_STATUS = Object.freeze({
-  active: { text: '사용 중', normal: true },
+  active: { text: '활성', normal: true },
   expired: { text: '만료', normal: false },
-  revoked: { text: '취소', normal: false },
+  revoked: { text: '철회됨', normal: false },
   unknown: { text: '확인 불가', normal: false },
 });
 const MODE_NOTICE = Object.freeze({
@@ -71,6 +72,17 @@ function errorMessage(part) {
   return `${message}${code}`;
 }
 
+// 서버 응답을 받았지만 계약과 다르거나 결과를 검증할 수 없을 때는 "연결 실패"가 아니라 "확인 불가"로 구분합니다.
+const UNVERIFIED_CODES = new Set(['CONTRACT_MISMATCH', 'ENGINE_RESULT_UNVERIFIED']);
+function errorKind(part) {
+  const code = isObject(part) && isObject(part.error) ? part.error.code : null;
+  return UNVERIFIED_CODES.has(code) ? '확인 불가' : '연결 실패';
+}
+
+function idText(value) {
+  return typeof value === 'string' && value ? value : null;
+}
+
 // 기기·세션 목록 칸(보조 정보). 목록 자체를 못 불러오면 그 사실을 보여 줍니다.
 function listSection(title, part, table, kind, labelOf) {
   const section = node('div', null, { 'data-identity-list': kind });
@@ -80,7 +92,7 @@ function listSection(title, part, table, kind, labelOf) {
     return section;
   }
   if (part.status === 'error') {
-    section.append(node('p', `연결 실패: ${title}을(를) 불러올 수 없습니다. ${errorMessage(part)}`, { role: 'alert' }));
+    section.append(node('p', `${errorKind(part)}: ${title}을(를) 불러올 수 없습니다. ${errorMessage(part)}`, { role: 'alert' }));
     return section;
   }
   if (part.status !== 'ok' || !Array.isArray(part.data)) {
@@ -119,7 +131,7 @@ function renderIdentity({ me, devices, sessions } = {}) {
   if (me.status === 'error') {
     box.setAttribute('data-identity-state', 'error');
     box.append(
-      node('p', `연결 실패: ${errorMessage(me)}`, { role: 'alert' }),
+      node('p', `${errorKind(me)}: ${errorMessage(me)}`, { role: 'alert' }),
       node('p', '로그인한 사용자 정보를 불러올 수 없어 사용자·기기·세션을 표시하지 않습니다. 연결을 확인한 뒤 「다시 불러오기」를 눌러 주세요.'),
       ...notices,
     );
@@ -142,19 +154,23 @@ function renderIdentity({ me, devices, sessions } = {}) {
   const deviceStatus = statusOf(DEVICE_STATUS, device ? device.status : null);
   const sessionStatus = statusOf(SESSION_STATUS, session ? session.status : null);
   const userLine = node('p', null, { 'data-identity-field': 'user' });
-  userLine.append(node('strong', '사용자: '), node('span', user.label));
+  userLine.append(node('strong', '사용자: '), node('span', `${user.label} (ID ${idText(user.id) || '확인 불가'})`));
+  const deviceName = device && idText(device.label) ? device.label : '(이름 없음)';
+  const deviceId = device && idText(device.id) ? device.id : '확인 불가';
+  const sessionId = session && idText(session.id) ? session.id : '확인 불가';
   box.append(
     userLine,
-    statusLine(`기기 ${device && typeof device.label === 'string' && device.label ? device.label : '(이름 없음)'}`, deviceStatus, 'device'),
-    statusLine('세션', sessionStatus, 'session'),
+    statusLine(`기기 ${deviceName} (ID ${deviceId})`, deviceStatus, 'device'),
+    statusLine(`세션 (ID ${sessionId})`, sessionStatus, 'session'),
   );
   if (!deviceStatus.normal || !sessionStatus.normal) {
     box.append(node('p', '이 PC 또는 접속은 지금 정상 상태가 아닙니다. 점검·다시 로그인이 필요한지 확인해 주세요.', { role: 'alert' }));
   }
   box.append(
+    node('p', '기기 보안 상태는 서버가 알려 준 보안 기준 충족 여부이며, 악성코드 검사나 치료 기능이 아닙니다.', { 'data-identity-field': 'scope' }),
     ...notices,
-    listSection('내 기기 목록', devices, DEVICE_STATUS, 'devices', (item) => (isObject(item) && item.label) || (isObject(item) && item.id) || '(이름 없음)'),
-    listSection('내 세션 목록', sessions, SESSION_STATUS, 'sessions', (item) => (isObject(item) && item.id) || '(ID 없음)'),
+    listSection('내 기기 목록', devices, DEVICE_STATUS, 'devices', (item) => `${(isObject(item) && idText(item.label)) || '(이름 없음)'} (ID ${(isObject(item) && idText(item.id)) || '확인 불가'})`),
+    listSection('내 세션 목록', sessions, SESSION_STATUS, 'sessions', (item) => `세션 (ID ${(isObject(item) && idText(item.id)) || '확인 불가'})`),
   );
   return box;
 }
