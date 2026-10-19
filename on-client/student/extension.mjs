@@ -4,7 +4,7 @@
 // 13단계: renderIdentity — 지금 로그인한 사용자·기기·세션을 상태에 맞게 보여 줍니다.
 // - 표시는 매번 받은 값({ me, devices, sessions })만으로 새로 만듭니다. 이전 값을 저장해 두지 않으므로
 //   다시 불러오면 새 값으로 바뀌고, 오류일 때 이전 사용자 이름이 남지 않습니다.
-// - 글자는 document.createElement 와 textContent 로만 넣습니다(innerHTML 등은 쓰지 않음).
+// - 글자는 document.createElement 와 textContent 로만 넣습니다(HTML 로 해석하는 방법은 쓰지 않음).
 // - 점검 필요(noncompliant)·만료(expired)·취소(revoked)·확인 불가(unknown)는 정상처럼 보이지 않게 "주의" 표시를 붙이고,
 //   한국어 뜻과 함께 서버가 보낸 원래 값을 괄호로 보여 줍니다.
 
