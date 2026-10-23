@@ -894,6 +894,106 @@ function renderExplanation({ event, explanation, checkedAt } = {}) {
   return box;
 }
 
+// ── 19단계: 보안 조치 요청 상태와 실제 결과 구분 ─────────────────────────
+// 입력: renderAction({ status, event, actionId, target, receipt, observation, message, confirmationExpiresAt?, error? })
+// - 제안(AI)·사람 확인·서버 전달·접수(ACK)·효과 관측을 서로 다른 문장으로 보여 줍니다.
+// - succeeded 이면서 observation.effectApplied === true 일 때만 "효과 확인"으로 표시하고, 그 밖에는 결과 불명입니다.
+// - 접수 영수증의 사건·조치가 지금 사건·조치와 다르면 현재 요청의 결과로 쓰지 않습니다(확인 불가).
+// - 학생 코드는 버튼·조치 요청(POST)·확인 티켓을 만들거나 저장하지 않습니다. 조작은 제공 화면 버튼으로만 합니다.
+// - 매번 입력으로 새로 그리므로 새 값이 오면 이전 대상·요청·결과 표시가 남지 않습니다.
+const ACTION_STATUS = {
+  idle: { text: '아직 미실행(idle)', detail: '조치 제안은 아직 실행되지 않았습니다. AI 제안만으로는 아무 조치도 실행되지 않습니다.' },
+  loading: { text: '확인 중(loading) · 완료 아님', detail: '조치를 준비하거나 연동 시스템 결과를 조회하고 있습니다. 아직 결과가 아닙니다.' },
+  prepared: { text: '준비됨 · 미실행(prepared)', detail: '조치를 준비만 했고 실행하지 않았습니다. 사건·조치·실제 대상과 확인 기한을 사람이 확인한 뒤 제공 화면의 「대상과 조치를 확인했으며 집행합니다」를 눌러야 서버에 전달됩니다.' },
+  executing: { text: '서버에 전달 중(executing) · 완료 아님', detail: '사람 확인 뒤 서버에 전달하고 있습니다. 결과는 아직 없습니다.' },
+  pending: { text: '서버 접수·처리 중(pending) · 완료 아님', detail: '서버가 요청을 받았다는 접수 응답(ACK)일 뿐, 조치 효과가 확인된 것이 아닙니다. 결과는 제공 화면의 「원천 결과만 재조회」로 직접 확인하세요.' },
+  succeeded: { text: '효과 확인(succeeded)', detail: '연동 시스템이 조치 효과를 관측했습니다.' },
+  denied: { text: '거절(denied)', detail: '연동 시스템이 이 조치를 거절했습니다. 조치는 적용되지 않았습니다.' },
+  failed: { text: '실패(failed)', detail: '연동 시스템에서 조치 처리가 실패했습니다.' },
+  unknown: { text: '결과 불명(unknown)', detail: '성공으로도, 효과 없음으로도 판단하지 마세요. 다시 집행하지 말고 제공 화면의 「원천 결과만 재조회」로 결과만 직접 확인하세요.' },
+  expired: { text: '확인 기한 지남(expired)', detail: '사람 확인 기한이 지나 집행할 수 없습니다. 현재 사건에서 조치를 다시 준비하세요.' },
+  error: { text: '요청 처리 안 됨(error)', detail: '요청이 처리되지 않았습니다. 이 상태는 효과 확인이 아닙니다. 서버에 이미 전달된 뒤 생긴 오류라면 다시 집행하지 말고 결과만 재조회하세요.' },
+};
+const ACTION_SCOPE = '보안 조치를 실제로 처리하는 연동 시스템 연결은 아직 준비되지 않았습니다. 지금 기록은 지원 조치가 없어(supportedActions 빈 배열) 조치 준비 버튼이 나오지 않는 것이 정상입니다. 「조치 화면 취소」는 이미 서버에 전달된 조치 효과를 되돌리지 않습니다.';
+
+function renderAction({ status, event, actionId, target, receipt, observation, message, confirmationExpiresAt, error } = {}) {
+  const box = node('section', null, { 'aria-live': 'polite' });
+  box.append(node('h3', '보안 조치 요청 상태'));
+  const code = typeof status === 'string' && Object.hasOwn(ACTION_STATUS, status) ? status : null;
+  const eventId = isObject(event) && typeof event.id === 'string' && event.id ? event.id : null;
+  const rec = isObject(receipt) ? receipt : null;
+  const obs = isObject(observation) ? observation : null;
+
+  // 지금 사건·조치와 영수증이 같은 의도인지 확인합니다.
+  const bindingBroken = Boolean(rec && ((rec.eventId != null && rec.eventId !== eventId) || (rec.actionId != null && rec.actionId !== actionId)));
+  // 효과 확인은 succeeded + effectApplied === true + 의도 일치일 때만
+  const effectConfirmed = code === 'succeeded' && obs !== null && obs.effectApplied === true && !bindingBroken;
+  const shown = !code ? null : (code === 'succeeded' && !effectConfirmed ? 'unknown' : code);
+
+  box.setAttribute('data-action-state', shown || 'unverified');
+  if (!shown) {
+    box.append(node('p', `확인 불가: 조치 상태 값(${safeCode(status)})을 알 수 없습니다. 성공으로 보지 마세요.`, { role: 'alert' }));
+  } else {
+    const info = ACTION_STATUS[shown];
+    box.append(node('p', `상태: ${info.text}`, { 'data-action-field': 'status', role: shown === 'succeeded' ? 'status' : 'note' }), node('p', info.detail));
+    if (code === 'succeeded' && !effectConfirmed) {
+      box.append(node('p', bindingBroken
+        ? '서버가 succeeded를 보냈지만 영수증의 사건·조치가 지금 사건과 달라 현재 요청의 결과로 볼 수 없습니다(결과 불명).'
+        : '서버가 succeeded를 보냈지만 효과 관측(effectApplied: true)이 없어 효과 확인으로 보지 않습니다(결과 불명).', { role: 'alert' }));
+    }
+  }
+  if (bindingBroken) box.append(node('p', '확인 불가: 접수 영수증의 사건 ID 또는 조치 ID가 지금 표시 중인 사건·조치와 다릅니다. 이전 요청의 결과를 현재 결과로 쓰지 않습니다.', { role: 'alert' }));
+
+  // 현재 의도: 사건·근거·조치·실제 대상·요청 정보 (받은 것만 표시)
+  const facts = node('dl', null, { 'data-action-field': 'intent' });
+  const add = (label, value) => { if (value != null && value !== '') facts.append(node('dt', label), node('dd', String(value))); };
+  add('사건 ID', eventId);
+  if (eventId && Array.isArray(event.evidence)) {
+    const ids = event.evidence.filter(isObject).map((item) => item.id).filter((id) => typeof id === 'string' && id);
+    add('근거 ID', ids.length ? ids.join(', ') : '없음');
+  }
+  add('조치(actionId)', typeof actionId === 'string' ? actionId : null);
+  if (isObject(target)) {
+    add('실제 대상(target.id)', target.id);
+    add('대상 세대(target.generation)', target.generation);
+  }
+  if (shown === 'prepared' || (confirmationExpiresAt && shown !== 'idle')) add('사람 확인 기한', typeof confirmationExpiresAt === 'string' && confirmationExpiresAt ? confirmationExpiresAt : '확인 불가');
+  if (rec) {
+    add('요청 ID(requestId)', rec.requestId);
+    add('영수증 ID(receiptId)', rec.receiptId);
+    add('버전(version)', rec.version);
+    if (typeof rec.status === 'string') add('영수증 상태', rec.status);
+  }
+  if (obs) {
+    add('관측 시각(observedAt)', obs.observedAt || '확인 불가');
+    add('effectApplied', obs.effectApplied === true ? 'true' : obs.effectApplied === false ? 'false' : '확인 불가');
+  }
+  if (facts.childElementCount > 0) box.append(facts);
+
+  // 효과 확인일 때 필요한 값 묶음
+  if (effectConfirmed) {
+    box.append(node('p', `효과 확인(succeeded) · 관측 시각 ${obs.observedAt || '확인 불가'} · effectApplied: true · receiptId ${rec && rec.receiptId ? rec.receiptId : '확인 불가'}`, { 'data-action-field': 'observed' }));
+  }
+
+  // 중복 방지: 같은 요청의 재전송·이전 조회 안내
+  if (rec && rec.replayed === true) box.append(node('p', '같은 요청 ID로 이미 접수된 요청의 응답입니다(replayed). 새로 집행된 것이 아니며, 같은 조치를 다시 전달하지 않았습니다.'));
+  if (rec && rec.superseded === true) box.append(node('p', '이전 조회 결과는 최신 결과를 대신하지 않습니다(superseded).'));
+
+  // 거절·실패·오류의 안전한 사유
+  if ((shown === 'denied' || shown === 'failed') && typeof message === 'string' && message) box.append(node('p', `사유: ${message}`));
+  if (isObject(error)) box.append(node('p', `코드: ${safeCode(error.code)} · ${typeof error.message === 'string' && error.message ? error.message : '서버가 이유를 알려 주지 않았습니다.'}`, { role: 'alert' }));
+  else if (shown === 'error') box.append(node('p', '코드: 확인 불가 · 서버가 이유를 알려 주지 않았습니다.', { role: 'alert' }));
+
+  box.append(node('p', '조작은 제공 화면의 「대상과 조치를 확인했으며 집행합니다」「원천 결과만 재조회」「조치 화면 취소」 버튼으로만 합니다. 이 칸에는 실행 버튼이 없습니다.'), node('p', ACTION_SCOPE, { role: 'note' }));
+
+  // 현재 사건·요청으로 그린 경우에만 표식을 붙입니다.
+  if (eventId && !bindingBroken) {
+    box.setAttribute('data-student-action-event', eventId);
+    if (rec && typeof rec.requestId === 'string' && rec.requestId) box.setAttribute('data-student-action-request', rec.requestId);
+  }
+  return box;
+}
+
 export function createStudentView() {
   return {
     renderIdentity,
@@ -903,6 +1003,6 @@ export function createStudentView() {
     renderVulnerabilities() { return '학생 구현 대기: 정확한 설치 버전·OSV 출처·조회 시각·부분 결과·조회 실패를 구분하세요.'; },
     renderAiConnection,
     renderExplanation,
-    renderAction() { return '학생 구현 대기: 현재 사건·조치·실제 대상·사람 확인·ACK와 원천 효과·unknown을 구분하세요.'; },
+    renderAction,
   };
 }
