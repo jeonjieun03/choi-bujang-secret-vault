@@ -7,6 +7,7 @@
   <meta name="referrer" content="no-referrer">
   <title>케셰브 · ZTNA &amp; XDR</title>
   <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/student/appearance.css">
   <script type="module" src="/app.js"></script>
 </head>
 <body>
@@ -14,9 +15,9 @@
 
   <header class="topbar">
     <div class="brand">
-      <img class="alekov-art brand-icon" src="/assets/alekov/alekov-app-icon.webp" alt="" aria-hidden="true" width="32" height="32" draggable="false">
+      <img id="brand-icon" class="alekov-art brand-icon" src="/assets/alekov/alekov-app-icon.webp" alt="" aria-hidden="true" width="32" height="32" draggable="false">
       <span class="brand-mark" id="brand-mark-fallback" aria-hidden="true" hidden>A</span>
-      <span class="brand-name">케셰브 <small>ZTNA &amp; XDR 보안 Agent</small></span>
+      <span class="brand-name"><span id="brand-title">케셰브</span> <small>ZTNA &amp; XDR 보안 Agent</small></span>
     </div>
     <div class="topbar-status">
       <span id="mode-badge" class="mode-badge" data-mode="loading" role="status" aria-live="polite">상태 확인 중</span>
@@ -37,6 +38,7 @@
 
     <main id="main" tabindex="-1">
       <div id="error-message" class="error-banner" data-testid="error-message" role="alert" hidden></div>
+      <p id="appearance-notice" class="appearance-notice" data-testid="appearance-notice" role="status" aria-live="polite" hidden></p>
 
       <p class="notice">
         <strong>제공 공통 UI</strong>와 <strong>학생 구현 표시</strong>(student/extension.mjs)는 구분되어 있습니다.
@@ -45,6 +47,20 @@
 
       <section id="view-protection" class="view" role="tabpanel" aria-labelledby="tab-protection">
         <h1>보호 현황</h1>
+        <section id="pc-status" class="card provided" aria-label="내 PC 상태"></section>
+        <section id="local-pc-notice" class="card provided local-pc-notice" data-testid="local-pc-notice" aria-labelledby="local-pc-notice-title" tabindex="-1" hidden>
+          <h2 id="local-pc-notice-title">내 PC 점검 모드 <span class="tag">제공 · 실행 안내</span></h2>
+          <p class="local-pc-lead">내 PC 상태는 확인할 수 있습니다. 계정·AI·SDP 연결은 이 실행에 포함되지 않았습니다. 위쪽 「내 PC 확인」부터 시작하세요.</p>
+          <ol class="connect-steps">
+            <li>위쪽 「내 PC 확인」을 눌러 CPU·메모리·디스크·네트워크·Windows 방화벽·Windows 기록 값을 읽습니다.</li>
+            <li>계속 지켜보려면 「10초마다 확인」을 켭니다. 앱 탭이 보이는 동안에만 확인합니다.</li>
+            <li>로그인·업무 앱·보안 기록·AI 연결이 필요한 작업은 담당자가 안내한 연결 실행으로 앱을 다시 열어 진행합니다. 이 화면에서는 연결을 시작하지 않습니다.</li>
+          </ol>
+          <p class="muted">이 안내는 서버가 알려 준 실행 형태를 화면에 옮긴 것입니다. 권한·연결 성공·안전·통과 판정이 아니며, 제공 UI라서 학생 성취로 계산하지 않습니다. 그래서 AI 연결 절차와 AI 연결 점검 카드는 이 실행에서 접어 두었습니다.</p>
+        </section>
+        <figure id="start-picture" class="start-picture" hidden>
+          <img id="start-picture-image" class="start-picture-image" alt="" aria-hidden="true" draggable="false" decoding="async">
+        </figure>
 
         <div class="grid-2">
           <section class="card provided" aria-labelledby="identity-title">
@@ -89,7 +105,7 @@
           <pre id="diag-output" class="diag-output" tabindex="0" hidden></pre>
         </section>
 
-        <section class="card provided" aria-labelledby="ai-connect-title" data-testid="ai-connect-card">
+        <section id="ai-connect-card" class="card provided" aria-labelledby="ai-connect-title" data-testid="ai-connect-card">
           <h2 id="ai-connect-title">AI 연결 <span class="tag">제공 · 17단계 연결 절차</span></h2>
           <div class="connect-layout">
             <div class="connect-body">
@@ -142,7 +158,7 @@
           </div>
         </section>
 
-        <section class="card provided" aria-labelledby="ai-connection-title">
+        <section id="ai-connection-card" class="card provided" aria-labelledby="ai-connection-title">
           <h2 id="ai-connection-title">AI 연결 점검 <span class="tag">제공</span></h2>
           <p class="muted">현재 로그인과 앱 권한으로 모델 응답을 점검합니다. 설정값 존재·모델 목록 응답은 사건 설명의 성공과 별도로 확인합니다. 브라우저에서 열쇠를 입력하거나 복사하지 않습니다.</p>
           <div class="row">

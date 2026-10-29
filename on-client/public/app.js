@@ -1,11 +1,14 @@
 // Alekov 학생 클라이언트 — 제공 공통 UI.
 // 모든 외부·서버 문자열은 textContent로만 표시한다. innerHTML/insertAdjacentHTML 사용 금지.
-// 자동 재시도 없음: 모든 요청은 사용자 동작 또는 최초 1회 로드에서만 일어난다.
+// 기존 연결의 자동 재시도 없음. 로컬 PC 조회의 주기적 확인은 학생이 직접 선택한다.
 import { normalizeScan, createVulnerabilitiesView } from '/vulnerabilities-view.mjs';
+import {mountPcStatus} from '/pc-status-view.mjs';
 
 const STUDENT_MODULE = '/student/extension.mjs';
 const STUDENT_PENDING = '학생 구현 대기';
 const REQUEST_TIMEOUT_MS = 10000;
+const AI_REQUEST_TIMEOUT_MS = 310000;
+const aiDeadlinePath = path => ['/api/ai/check', '/api/ai/explain', '/api/learner-support/gpt'].includes(path);
 const UNVERIFIED_MESSAGE = '서버 응답 형식을 확인할 수 없습니다(확인 불가). 정상으로 간주하지 마세요.';
 
 const MODE_LABELS = {
@@ -32,7 +35,9 @@ const STATE_NAMES = { access: '접속', session: '세션', device: '기기' };
 
 const KIND_LABELS ={ access: '접속 기록', xdr: 'XDR 사건' };
 
-const STUDENT_GET_PATHS = ['/api/me', '/api/apps', '/api/events', '/api/devices', '/api/sessions', '/api/vulnerabilities'];
+// 학생 확장은 아래 정확한 문자열만 GET 한다. /api/pc/status 는 제공 카드와 같은 읽기 전용 실측이다.
+const STUDENT_PC_PATH = '/api/pc/status';
+const STUDENT_GET_PATHS = ['/api/me', '/api/apps', '/api/events', '/api/devices', '/api/sessions', '/api/vulnerabilities', STUDENT_PC_PATH];
 
 const RESOURCE_LABELS = {
   me: '로그인 정보',
@@ -159,7 +164,7 @@ function validAiCheck(data, meta) {
 const AI_MESSAGES = Object.freeze({
   ON_AI_PROVISIONING_PENDING: '학생 앱 이용 권한의 발급·연결을 준비 중입니다. 담당자에게 확인하세요.',
   WB_CLCO_AUTH_REQUIRED: '앱 전용 열쇠의 인증을 확인하세요. Workbench 열쇠를 복사하지 마세요.',
-  WB_CLCO_ACCESS_BLOCKED: '학생 앱의 이용 권한을 확인하세요.',
+  WB_CLCO_ACCESS_BLOCKED: '학생 앱 AI 이용이 제한됐습니다. 운영 중지 상태와 이용 권한을 담당자에게 확인하세요.',
   WB_CLCO_COHORT_BUDGET_EXHAUSTED: '반의 AI 사용량이 소진됐습니다. 담당자에게 확인하세요.',
   WB_CLCO_RATE_LIMITED: 'AI 요청이 잠시 제한됐습니다. 잠시 후 직접 다시 요청하세요.',
   WB_CLCO_LIMIT_REACHED: 'AI 이용 한도에 도달했습니다. 담당자에게 확인하세요.',
@@ -205,6 +210,25 @@ function el(tag, props = {}, children = []) {
   return node;
 }
 
+// 버튼을 잠그는 비동기 작업이 끝난 뒤의 초점 복구. 시작할 때 그 버튼에 초점이 있었던 경우에만 기억하고,
+// 그 사이 사용자가 다른 곳에 초점을 두거나 눌렀으면, 또는 버튼이 문서에서 빠졌거나 잠겼거나 숨겨졌으면 되돌리지 않는다.
+// 반환한 함수는 한 번만 부르며, allow 가 false 면(새 세대가 이어받은 경우) 기억만 지운다.
+function keepFocusOn(button) {
+  if (document.activeElement !== button) return () => {};
+  let moved = false;
+  const onMove = (event) => { if (event.target !== button) moved = true; };
+  document.addEventListener('focusin', onMove);
+  document.addEventListener('pointerdown', onMove);
+  return (allow = true) => {
+    document.removeEventListener('focusin', onMove);
+    document.removeEventListener('pointerdown', onMove);
+    const active = document.activeElement;
+    if (!allow || moved || !button.isConnected || button.disabled || button.closest('[hidden]')) return;
+    if (active === button || (active && active !== document.body)) return;
+    button.focus();
+  };
+}
+
 function setChildren(target, ...children) {
   target.replaceChildren(...children.filter((c) => c != null && c !== false));
 }
@@ -229,9 +253,12 @@ function loadingBox() {
 
 // ---------- HTTP ----------
 
+// uiMode 는 SDP 없이 PC 전용으로 띄운 서버가 붙이는 표시 정보다. 권한·성공을 뜻하지 않으며,
+// 정확히 'local-pc' 이고 mode 가 disconnected 일 때만 남긴다. 그 밖에는 키를 만들지 않아 구판 meta 와 같다.
 function normalizeMeta(meta) {
   const mode = meta && ['connected', 'demo', 'disconnected'].includes(meta.mode) ? meta.mode : 'unknown';
   const checkedAt = meta && typeof meta.checkedAt === 'string' ? meta.checkedAt : null;
+  if (mode === 'disconnected' && isRecord(meta) && Object.hasOwn(meta, 'uiMode') && meta.uiMode === 'local-pc') return { mode, checkedAt, uiMode: 'local-pc' };
   return { mode, checkedAt };
 }
 
@@ -241,11 +268,11 @@ function localFailure(code, message, meta = { mode: 'disconnected', checkedAt: n
 
 const UNKNOWN_META = { mode: 'unknown', checkedAt: null };
 
-// 모든 요청은 10초 뒤 중단된다. signal로 호출자가 취소할 수 있으며, 응답이 없어도 화면이 잠기지 않는다.
-async function request(path, { method = 'GET', body, signal } = {}) {
+// 일반 조회·조치는 10초, 지정한 AI 경로만 별도 유한 기한을 사용한다. 호출자는 signal로 취소할 수 있다.
+async function request(path, { method = 'GET', body, signal, timeoutMs = REQUEST_TIMEOUT_MS } = {}) {
   const controller = new AbortController();
   let timedOut = false;
-  const timer = setTimeout(() => { timedOut = true; controller.abort(); }, REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
   const onAbort = () => controller.abort();
   if (signal) {
     if (signal.aborted) controller.abort();
@@ -306,14 +333,15 @@ async function request(path, { method = 'GET', body, signal } = {}) {
 async function aiRequest(path, { body, signal } = {}) {
   if (signal?.aborted) return localFailure('CANCELLED', AI_MESSAGES.CANCELLED, UNKNOWN_META);
   const controller = new AbortController();
+  const timeoutMs = aiDeadlinePath(path) ? AI_REQUEST_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
   let timer, cancel;
   const stopped = new Promise(resolve => {
     cancel = () => { resolve(localFailure('CANCELLED', AI_MESSAGES.CANCELLED, UNKNOWN_META)); controller.abort(); };
-    timer = setTimeout(() => { resolve(localFailure('TIMEOUT', AI_MESSAGES.TIMEOUT, UNKNOWN_META)); controller.abort(); }, REQUEST_TIMEOUT_MS);
+    timer = setTimeout(() => { resolve(localFailure('TIMEOUT', AI_MESSAGES.TIMEOUT, UNKNOWN_META)); controller.abort(); }, timeoutMs);
     if (signal?.aborted) cancel();
     else signal?.addEventListener('abort', cancel, { once: true });
   });
-  try { return await Promise.race([request(path, { method: 'POST', body, signal: controller.signal }), stopped]); }
+  try { return await Promise.race([request(path, { method: 'POST', body, signal: controller.signal, timeoutMs }), stopped]); }
   finally { clearTimeout(timer); signal?.removeEventListener('abort', cancel); controller.abort(); }
 }
 
@@ -384,23 +412,84 @@ function currentMode() {
   return modes.size === 1 ? [...modes][0] : 'unknown';
 }
 
+// PC 전용 실행 표시. 현재 세대의 기본 조회 5개 응답이 모두 같은 hint(disconnected · local-pc)를 담았을 때만 확정한다.
+// 하나라도 불러오는 중·통신 실패·형식 불일치·hint 없음이면 추정하지 않는다(그 meta 에는 uiMode 가 남지 않는다).
+// 다시 불러오기는 5개를 loading 으로 되돌리므로 확정도 함께 풀린다. 지난 세대 응답은 loadResource 가 버린다.
+const LOCAL_PC_KEYS = ['me', 'apps', 'events', 'devices', 'sessions'];
+const hasLocalPcHint = (resource) => (resource.status === 'ok' || resource.status === 'error')
+  && resource.meta?.mode === 'disconnected' && resource.meta.uiMode === 'local-pc';
+const isLocalPcMode = () => LOCAL_PC_KEYS.every((key) => hasLocalPcHint(state[key]));
+
+// 확정된 PC 전용 실행에서 그 자원이 정확히 ENGINE_NOT_CONNECTED 로 끝났을 때만 「확인하지 않음」으로 보인다.
+// 자원의 오류 상태·meta·state.errors 는 그대로 두며, TIMEOUT·통신 실패·형식 불일치·다른 오류는 기존 오류 표시 그대로다.
+const LOCAL_PC_SKIPPED = '이 실행에는 연결 기능이 포함되지 않아 확인하지 않았습니다. 내 PC 상태는 보호 현황에서 볼 수 있습니다.';
+const isEngineNotConnected = (resource) => resource.status === 'error' && resource.error?.code === 'ENGINE_NOT_CONNECTED';
+const isLocalPcSkipped = (resource) => isEngineNotConnected(resource) && isLocalPcMode();
+
+// 다시 불러오기 동안 AI 카드가 잠깐 펼쳐지지 않게 하는 표시 전용 상태. 권한·버튼 사용 가능 여부·isLocalPcMode 에는 쓰지 않는다.
+// 새 세대 5개 응답이 하나라도 hint 없이 도착하면 바로 풀리고, 5개가 모두 검증되면 확정 표시로 넘어가며, 그 세대가 끝나면 반드시 풀린다.
+let localPcHold = false;
+function localPcHoldActive(local) {
+  if (localPcHold && (local || !LOCAL_PC_KEYS.every((key) => state[key].status === 'loading' || hasLocalPcHint(state[key])))) localPcHold = false;
+  return localPcHold;
+}
+
 function renderMode() {
   const badge = $('mode-badge');
   const mode = currentMode();
+  const local = isLocalPcMode();
+  const hold = localPcHoldActive(local);
   badge.dataset.mode = mode;
-  badge.textContent = MODE_LABELS[mode];
+  if (local) badge.dataset.uiMode = 'local-pc';
+  else delete badge.dataset.uiMode;
+  if (hold) badge.dataset.refresh = 'checking';
+  else delete badge.dataset.refresh;
+  badge.textContent = local ? '내 PC 점검 모드' : hold ? '실행 형태 확인 중…' : MODE_LABELS[mode];
   $('checked-at').textContent = state.checkedAt ? `확인 시각 ${formatTime(state.checkedAt)}` : '';
+  renderLocalPcMode(local, hold);
   renderStudent('status');
+}
+
+// 확정된 PC 전용 실행에서는 AI 연결 절차와 AI 연결 점검 카드를 접는다. DOM·컨트롤러·학생 표시는 그대로 두고,
+// 원격 취소나 권한 변경 요청은 보내지 않는다. 표시가 풀리면 기존 컨트롤러 조건으로 다시 그린다.
+// hold 동안에는 AI 카드만 접힌 채로 두고, 확정 전이므로 내 PC 점검 모드 안내는 보이지 않는다.
+let localPcShown = false;
+function renderLocalPcMode(local, hold = false) {
+  const notice = $('local-pc-notice');
+  const folded = [$('ai-connect-card'), $('ai-connection-card')];
+  // 접힐 카드 안에 초점이 있던 경우에만 새 안내로 옮긴다. 다른 곳의 초점은 건드리지 않는다.
+  const moveFocus = local && !localPcShown && folded.some((node) => node.contains(document.activeElement));
+  notice.hidden = !local;
+  for (const node of folded) node.hidden = local || hold;
+  if (local === localPcShown) return;
+  localPcShown = local;
+  renderNativeLogin();
+  renderAiConnect();
+  renderAiConnection();
+  renderLocalPcSkippable();
+  if (moveFocus) notice.focus();
+}
+
+// 확정이 바뀌는 순간(예: 다섯 번째 응답 도착) 이미 그려진 ENGINE_NOT_CONNECTED 카드만 다시 그린다.
+// 아래 함수들은 renderMode 를 부르지 않으므로 서로 부르는 고리가 생기지 않는다. 정상 응답 카드(진행 중 AI 설명 칸 포함)는 건드리지 않는다.
+function renderLocalPcSkippable() {
+  const renderers = { me: renderIdentity, apps: renderApps, events: renderEvents, devices: renderDevices, sessions: renderSessions };
+  for (const key of LOCAL_PC_KEYS) if (isEngineNotConnected(state[key])) renderers[key]();
 }
 
 function renderErrors() {
   const box = $('error-message');
-  if (state.errors.size === 0) {
+  // PC 전용 실행에서는 기본 조회의 ENGINE_NOT_CONNECTED 반복만 「내 PC 점검 모드」 안내로 대신한다.
+  // state.errors 와 각 자원의 오류 상태는 그대로 두며, 다른 오류는 그대로 보인다.
+  const summarized = isLocalPcMode()
+    ? LOCAL_PC_KEYS.filter((key) => state.errors.has(key) && state[key].error?.code === 'ENGINE_NOT_CONNECTED') : [];
+  const shown = [...state.errors].filter(([key]) => !summarized.includes(key));
+  if (shown.length === 0) {
     box.hidden = true;
     box.replaceChildren();
     return;
   }
-  const items = [...state.errors].map(([key, message]) =>
+  const items = shown.map(([key, message]) =>
     el('li', {}, [el('strong', { text: `${RESOURCE_LABELS[key] || key}: ` }), message]),
   );
   setChildren(box, el('ul', {}, items));
@@ -443,6 +532,7 @@ function setupNav() {
 function renderAiConnection() {
   const target = $('ai-connection-result'), resource = state.aiConnection;
   target.dataset.state = resource.status;
+  $('ai-check').disabled = isLocalPcMode();
   $('ai-check-cancel').disabled = resource.status !== 'loading';
   if (resource.status === 'idle') setChildren(target, stateBox('empty', 'AI 연결 점검 전입니다. 설정값 존재는 이용 권한 확인이 아닙니다.'));
   else if (resource.status === 'loading') setChildren(target, stateBox('loading', '현재 로그인으로 AI 모델 응답을 점검하는 중…'));
@@ -517,11 +607,13 @@ function renderAiConnect() {
   if (Number.isFinite(expiresMs) && !approvalExpired) connectExpiryTimer = setTimeout(renderAiConnect, Math.min(expiresMs - Date.now() + 50, 2147483647));
   target.dataset.state = s.phase;
   target.dataset.approvalExpired = approvalExpired ? 'true' : 'false';
-  $('ai-connect-start').disabled = !aiConnect || busy || ['awaiting_approval', 'checking'].includes(s.phase);
-  $('ai-connect-finish').disabled = !aiConnect || s.phase !== 'awaiting_approval' || approvalExpired;
-  $('ai-connect-status').disabled = !aiConnect || !s.connectionId || busy;
+  const local = isLocalPcMode();
+  $('ai-connect-start').disabled = local || !aiConnect || busy || ['awaiting_approval', 'checking'].includes(s.phase);
+  $('ai-connect-finish').disabled = local || !aiConnect || s.phase !== 'awaiting_approval' || approvalExpired;
+  $('ai-connect-status').disabled = local || !aiConnect || !s.connectionId || busy;
   $('ai-connect-cancel').disabled = !aiConnect || !['starting', 'awaiting_approval', 'finishing', 'checking'].includes(s.phase);
   $('ai-connect-check').hidden = s.phase !== 'connected';
+  $('ai-connect-check').disabled = local;
   const open = $('ai-connect-open');
   if (s.phase === 'awaiting_approval' && !approvalExpired && s.approvalUrl && aiConnectModule?.validApprovalUrl(s.approvalUrl, s.connectionId)) {
     open.href = s.approvalUrl;
@@ -570,9 +662,10 @@ function renderNativeLogin() {
   const view = nativeLogin && aiConnectModule ? aiConnectModule.nativeLoginView(nativeLogin.state, Date.now()) : null;
   const phase = view ? view.phase : fallback.phase;
   target.dataset.state = phase;
-  $('native-login-start').disabled = !view || !view.canStart;
-  $('native-login-redeem').disabled = !view || !view.canRedeem;
-  $('native-login-check').disabled = !view || !view.canCheck;
+  const local = isLocalPcMode();
+  $('native-login-start').disabled = local || !view || !view.canStart;
+  $('native-login-redeem').disabled = local || !view || !view.canRedeem;
+  $('native-login-check').disabled = local || !view || !view.canCheck;
   $('native-login-cancel').disabled = !view || !view.canCancel;
   const open = $('native-login-open');
   if (view && view.approvalUrl && aiConnectModule.validNativeApprovalUrl(view.approvalUrl)) {
@@ -642,9 +735,24 @@ function noteIdentity(resource) {
   lastIdentityKey = key;
 }
 
+// 현재 로그인 칸 아래의 「확인하지 않음」 안내. 고정 HTML 을 바꾸지 않고 필요할 때만 만들며, 새 live 영역은 만들지 않는다.
+function renderIdentityLocalPc(skipped) {
+  const list = $('identity-user').closest('dl');
+  let note = list.nextElementSibling?.classList.contains('identity-local-pc') ? list.nextElementSibling : null;
+  if (!skipped) return note?.remove();
+  if (!note) list.after(note = el('p', { className: 'state state-empty identity-local-pc', testid: 'identity-local-pc' }));
+  note.textContent = LOCAL_PC_SKIPPED;
+}
+
 function renderIdentity() {
   const me = state.me;
   const cells = { user: $('identity-user'), device: $('identity-device'), session: $('identity-session') };
+  const skipped = isLocalPcSkipped(me);
+  renderIdentityLocalPc(skipped);
+  if (skipped) {
+    for (const cell of Object.values(cells)) cell.textContent = '확인하지 않음';
+    return;
+  }
   if (me.status === 'loading') {
     for (const cell of Object.values(cells)) cell.textContent = '불러오는 중';
     return;
@@ -670,6 +778,7 @@ const coverageTime = (coverage) => formatTime(new Date(coverage.observedAtMs).to
 function renderOwnedList(targetId, resource, emptyText, describe, coverageNotice) {
   const target = $(targetId);
   if (resource.status === 'loading') return setChildren(target, loadingBox());
+  if (isLocalPcSkipped(resource)) return setChildren(target, stateBox('empty', LOCAL_PC_SKIPPED));
   if (resource.status === 'error') return setChildren(target, stateBox('error', resource.error.message));
   const notice = resource.coverage && coverageNotice ? coverageNotice(resource.coverage) : null;
   if (resource.data.length === 0) return setChildren(target, stateBox('empty', emptyText), notice);
@@ -712,6 +821,7 @@ async function loadDiagnostics() {
   const copy = $('diag-copy');
   const status = $('diag-status');
   const output = $('diag-output');
+  const restoreFocus = keepFocusOn(button);
   button.disabled = true;
   copy.disabled = true;
   diagnosticsText = '';
@@ -735,6 +845,7 @@ async function loadDiagnostics() {
     status.textContent = '아래 내용을 직접 확인한 뒤 복사하세요. 복사 전에는 어디에도 전송되지 않습니다.';
   } finally {
     button.disabled = false;
+    restoreFocus();
   }
 }
 
@@ -814,6 +925,7 @@ function renderApps() {
   const target = $('apps');
   const apps = state.apps;
   if (apps.status === 'loading') return setChildren(target, loadingBox());
+  if (isLocalPcSkipped(apps)) return setChildren(target, stateBox('empty', LOCAL_PC_SKIPPED));
   if (apps.status === 'error') return setChildren(target, stateBox('error', apps.error.message));
   if (apps.data.length === 0) return setChildren(target, stateBox('empty', '현재 사용자에게 보이는 업무 앱이 없습니다.'));
   setChildren(
@@ -909,6 +1021,7 @@ function renderEvents() {
   const events = state.events;
   explainSlots.clear();
   if (events.status === 'loading') return setChildren(list, el('li', {}, loadingBox()));
+  if (isLocalPcSkipped(events)) return setChildren(list, el('li', {}, stateBox('empty', LOCAL_PC_SKIPPED)));
   if (events.status === 'error') return setChildren(list, el('li', {}, stateBox('error', events.error.message)));
   // 확인 범위는 사건 카드(.event)와 분리한 항목이다. 전체 과거 로그·전체 XDR 기록이라고 말하지 않는다.
   const c = events.coverage;
@@ -1238,12 +1351,22 @@ function renderAllStudent() {
   for (const kind of Object.keys(STUDENT_SLOTS)) renderStudent(kind);
 }
 
+// 학생 PC 조회는 진행 중인 요청 하나만 같이 쓴다. 끝나면(성공·실패·거부) 비워 다음 조회가 새로 요청한다.
+// 완료 결과를 보관하거나 스스로 다시 조회하지 않는다. 다른 경로와 제공 카드의 조회는 합치지 않는다.
+let studentPcPending = null;
+function requestStudentPc() {
+  if (studentPcPending) return studentPcPending;
+  const pending = request(STUDENT_PC_PATH).finally(() => { if (studentPcPending === pending) studentPcPending = null; });
+  studentPcPending = pending;
+  return pending;
+}
+
 const studentApi = Object.freeze({
   get(path) {
     if (!STUDENT_GET_PATHS.includes(path)) {
       return Promise.resolve(localFailure('NOT_ALLOWED', '학생 구현에서 허용되지 않은 주소입니다.', UNKNOWN_META));
     }
-    return request(path);
+    return path === STUDENT_PC_PATH ? requestStudentPc() : request(path);
   },
 });
 
@@ -1257,6 +1380,29 @@ async function loadStudentModule() {
     studentLoadFailed = true;
   }
   renderAllStudent();
+}
+
+// ---------- 학생 꾸밈(student/appearance.json) ----------
+// 선택 기능. 꾸밈이 없거나(404·absent) 잘못돼도 짧은 안내 뒤 기존 화면 그대로이며 로그인·AI·상태·조치 경로를 기다리게 하지 않는다.
+const APPEARANCE_MODULE = '/student-appearance.mjs';
+const APPEARANCE_VIEW = '/student/appearance.json';
+async function loadAppearance() {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(APPEARANCE_VIEW, { cache: 'no-store', credentials: 'same-origin', signal: controller.signal });
+    if (response.status === 404) return;
+    if (!response.ok || !/^application\/json(?:;|$)/i.test(response.headers.get('content-type') ?? '')) throw new Error('unverified');
+    const text = await response.text();
+    if (text.length > 16384) throw new Error('unverified');
+    const mod = await import(APPEARANCE_MODULE);
+    mod.applyStudentAppearance(document, JSON.parse(text));
+  } catch {
+    const notice = $('appearance-notice');
+    if (notice) { notice.textContent = '꾸밈 설정을 확인하지 못해 기본 화면으로 표시합니다. 다른 기능은 그대로 사용할 수 있습니다.'; notice.hidden = false; }
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // ---------- 로드 ----------
@@ -1307,9 +1453,12 @@ async function loadAll() {
   clearVulnerabilities();
 
   const refresh = $('refresh');
+  const restoreRefreshFocus = keepFocusOn(refresh);
   refresh.disabled = true;
   refresh.textContent = '불러오는 중…';
   state.checkedAt = null;
+  // 직전 화면이 내 PC 점검 모드(또는 그 확인 중)였을 때만 AI 카드를 접힌 채로 둔다. 새 세대의 확정은 다시 5개 응답으로만 한다.
+  localPcHold = localPcShown || localPcHold;
   for (const key of Object.keys(PATHS)) {
     state[key] = { status: 'loading' };
     trackError(key, state[key]);
@@ -1324,33 +1473,39 @@ async function loadAll() {
       refreshController = null;
       refresh.disabled = false;
       refresh.textContent = '다시 불러오기';
+      // 이 세대가 끝났으면 확인 중 표시는 남기지 않는다(5개가 모두 끝났으므로 보통은 이미 풀려 있다).
+      if (localPcHold) { localPcHold = false; renderMode(); }
     }
+    restoreRefreshFocus(gen === generation);
   }
 }
 
 function init() {
+  const pcHost = document.getElementById('pc-status');
+  if (pcHost) mountPcStatus(pcHost);
   setupNav();
   $('refresh').addEventListener('click', () => loadAll());
   $('diag-load').addEventListener('click', () => loadDiagnostics());
   $('diag-copy').addEventListener('click', () => copyDiagnostics());
   $('vulnerabilities-load').addEventListener('click', () => loadVulnerabilities());
   $('vulnerabilities-cancel').addEventListener('click', () => cancelVulnerabilities());
-  $('ai-check').addEventListener('click', () => checkAiConnection());
+  // PC 전용 실행이 확정된 동안에는 연결 시작·확인·점검·로그인 확인 요청을 보내지 않는다. 취소는 기존 조건 그대로 둔다.
+  $('ai-check').addEventListener('click', () => { if (!isLocalPcMode()) checkAiConnection(); });
   $('ai-check-cancel').addEventListener('click', () => cancelAiCheck());
   $('ai-explanation-cancel').addEventListener('click', () => cancelExplanation());
   $('action-confirm').addEventListener('click', () => executeAction());
   $('action-result-load').addEventListener('click', () => {if(actionIntent&&!$('action-result-load').disabled)actionOperation('result',{requestId:actionIntent.requestId});});
   $('action-cancel').addEventListener('click', () => clearAction({cancelled:true}));
-  $('ai-connect-start').addEventListener('click', () => { appConnectInvalidated = false; if (aiConnect) aiConnect.start(); });
-  $('ai-connect-finish').addEventListener('click', () => { if (aiConnect) aiConnect.finish(); });
-  $('ai-connect-status').addEventListener('click', () => { if (aiConnect) aiConnect.refresh(); });
+  $('ai-connect-start').addEventListener('click', () => { if (isLocalPcMode()) return; appConnectInvalidated = false; if (aiConnect) aiConnect.start(); });
+  $('ai-connect-finish').addEventListener('click', () => { if (aiConnect && !isLocalPcMode()) aiConnect.finish(); });
+  $('ai-connect-status').addEventListener('click', () => { if (aiConnect && !isLocalPcMode()) aiConnect.refresh(); });
   $('ai-connect-cancel').addEventListener('click', () => { if (aiConnect) aiConnect.cancel(); });
-  $('ai-connect-check').addEventListener('click', () => checkAiConnection());
+  $('ai-connect-check').addEventListener('click', () => { if (!isLocalPcMode()) checkAiConnection(); });
   $('ai-connect-help').addEventListener('click', () => showConnectHelp());
   $('ai-connect-help-copy').addEventListener('click', () => copyConnectHelp());
-  $('native-login-start').addEventListener('click', () => { if (nativeLogin) nativeLogin.start(); });
-  $('native-login-redeem').addEventListener('click', () => { if (nativeLogin) nativeLogin.redeem(); });
-  $('native-login-check').addEventListener('click', () => { if (nativeLogin) nativeLogin.check(); });
+  $('native-login-start').addEventListener('click', () => { if (nativeLogin && !isLocalPcMode()) nativeLogin.start(); });
+  $('native-login-redeem').addEventListener('click', () => { if (nativeLogin && !isLocalPcMode()) nativeLogin.redeem(); });
+  $('native-login-check').addEventListener('click', () => { if (nativeLogin && !isLocalPcMode()) nativeLogin.check(); });
   $('native-login-cancel').addEventListener('click', () => { if (nativeLogin) nativeLogin.cancel(); });
   // 페이지를 떠날 때는 화면 진행과 이 화면의 요청만 끝낸다. 원격 취소를 보내거나 성공이라고 주장하지 않는다.
   window.addEventListener('pagehide', () => { if (nativeLogin) nativeLogin.reset(); });
@@ -1362,6 +1517,7 @@ function init() {
   renderVulnerabilities();
   renderAllStudent();
   loadStudentModule();
+  loadAppearance();
   loadAll();
 }
 
