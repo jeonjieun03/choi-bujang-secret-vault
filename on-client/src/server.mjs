@@ -11,6 +11,7 @@ import {readActionStartupConfiguration} from './actions/action-startup-config.mj
 import {engineMethod,engineError,loadEngine,demoEngine} from './engine.mjs';
 import {readSdpHostConfiguration} from './engine/sdp-host-config.mjs';
 import {createSdpHostEngine,isOwnedSdpHostEngine,openSdpIncidentOperation,readSdpIncidentOperation,assertSdpIncidentOperation,closeSdpIncidentOperation} from './engine/sdp-host.mjs';
+import {attachTrustedAppAssembly} from './engine/trusted-app-assembly.mjs';
 import {createOnAiService,validateLearnerSupportGuide} from './ai/service.mjs';
 import {prepareLearnerSupportRequest} from './ai/learner-support-contract.mjs';
 import {createVaultOnAiService} from './ai/vault-service.mjs';
@@ -18,16 +19,21 @@ import {createConnectionManager} from './connection/manager.mjs';
 import {createProjectScanner} from './vulnerabilities/project-scan.mjs';
 import {buildLocalLearnerSupportGuide,isLearnerSupportProblemKind,readLocalLearnerSupportObservation} from './learner-support/service.mjs';
 import {nativeOwn,nativePublicError} from './connection/native-login.mjs';
-import {createNativeHostContext,captureNativeHostConfiguration,readNativeHostConfiguration,openNativeHostOperation,readNativeHostOperation,assertNativeHostOperation,createNativeOperationVault,closeNativeHostOperation} from './connection/native-context.mjs';
+import {createNativeHostContext,captureNativeHostConfiguration,readNativeHostConfiguration,openNativeHostOperation,readNativeHostOperation,assertNativeHostOperation,assertNativeHostContinuity,createNativeOperationVault,closeNativeHostOperation,createNativeFinishCheckpointPort} from './connection/native-context.mjs';
+import {APPEARANCE_IMAGES,appearanceCss,appearanceView} from './student-appearance.mjs';
+import {readStudentAppearance} from './student-appearance-files.mjs';
+import {readPcStatus} from './pc-status.mjs';
 
 const root=fileURLToPath(new URL('../',import.meta.url));
 const id=value=>typeof value==='string'&&/^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/.test(value);
 const record=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
 const text=value=>typeof value==='string'&&value.length<=2000;
 const files=new Map([['/','public/index.html'],['/index.html','public/index.html'],['/app.js','public/app.js'],['/style.css','public/style.css'],['/vulnerabilities-view.mjs','public/vulnerabilities-view.mjs'],['/student/extension.mjs','student/extension.mjs'],
-  ['/ai-connect.mjs','public/ai-connect.mjs'],
+  ['/ai-connect.mjs','public/ai-connect.mjs'],['/student-appearance.mjs','public/student-appearance.mjs'],['/pc-status-view.mjs','public/pc-status-view.mjs'],
   ...['alekov-ai-explain','alekov-app-icon','alekov-connect-approval','alekov-connection-unknown','alekov-empty-records'].map(name=>[`/assets/alekov/${name}.webp`,`public/assets/alekov/${name}.webp`])]);
 const connectionRoutes=new Map(['start','finish','status','cancel'].map(kind=>[`/api/ai/connect/${kind}`,kind]));
+// 학생 꾸밈 고정 route: 정규화 DTO, 검증된 색 변수 CSS, 꾸밈이 고른 허용 그림만. student 폴더 목록·임의 파일 제공은 없다.
+const appearanceRoutes=new Map([['/student/appearance.json','json'],['/student/appearance.css','css'],...Object.values(APPEARANCE_IMAGES).flatMap(names=>Object.keys(names)).map(name=>[`/student/assets/${name}`,'image'])]);
 const safeErrors=Object.freeze({
   ENGINE_NOT_CONNECTED:[503,'기존 서버·에이전트의 연결을 확인할 수 없습니다. 연결 어댑터를 먼저 확인하세요.'],
   ENGINE_ADAPTER_INVALID:[503,'기존 서버 연결 어댑터의 형식을 확인하세요.'],
@@ -51,7 +57,7 @@ const aiErrorMessages=Object.freeze({
   ON_AI_MODEL_LIST_EMPTY:'현재 앱 권한으로 쓸 수 있는 AI 모델이 없습니다. 담당자에게 모델 허용 설정을 확인하세요.',
   ON_AI_INVALID_INPUT:'사건의 근거와 현재 상태를 확인하세요.',ON_AI_INVALID_OUTPUT:'AI 설명의 근거와 형식을 확인할 수 없습니다.',
   ON_AI_TRANSPORT_PENDING:'공통 AI 연결을 준비 중입니다.',
-  WB_CLCO_AUTH_REQUIRED:'앱 전용 열쇠를 확인하세요.',WB_CLCO_ACCESS_BLOCKED:'학생 앱의 이용 권한을 담당자에게 확인하세요.',
+  WB_CLCO_AUTH_REQUIRED:'앱 전용 열쇠를 확인하세요.',WB_CLCO_ACCESS_BLOCKED:'학생 앱 AI 이용이 제한됐습니다. 운영 중지 상태와 이용 권한을 담당자에게 확인하세요.',
   WB_CLCO_SESSION_CLOSED:'현재 AI 이용 시간을 확인하세요.',WB_CLCO_COHORT_BUDGET_EXHAUSTED:'반의 AI 사용량을 담당자에게 확인하세요.',
   WB_CLCO_RATE_LIMITED:'AI 요청이 잠시 제한됐습니다.',WB_CLCO_LIMIT_REACHED:'AI 이용 한도를 확인하세요.',
   WB_CLCO_SERVER_UNAVAILABLE:'AI 서버가 응답하지 않습니다.',WB_CLCO_TIMEOUT:'AI 요청 시간이 초과됐습니다.',
@@ -196,7 +202,13 @@ async function jsonBody(req,keys,validate=(key,value)=>id(value)) {
 }
 export function createOnServer(serverOptions={}) {
   if(!serverOptions||typeof serverOptions!=='object'||types.isProxy(serverOptions))throw Error('INVALID_SERVER_AI_CONFIGURATION');
-  const sdpDescriptor=Object.getOwnPropertyDescriptor(serverOptions,'sdpHostEngine');let sdpHostEngine=null;
+  const assemblyDescriptor=Object.getOwnPropertyDescriptor(serverOptions,'trustedAppAssembly');let assembly=null;
+  if(assemblyDescriptor){
+    if(!Object.hasOwn(assemblyDescriptor,'value')||!assemblyDescriptor.enumerable||['engine','sdpHostEngine','sdpActionStartup','actionConfiguration'].some(k=>k in serverOptions))throw Error('INVALID_SERVER_APP_ASSEMBLY');
+    assembly=attachTrustedAppAssembly(assemblyDescriptor.value);
+  }else for(let p=Object.getPrototypeOf(serverOptions);p;p=Object.getPrototypeOf(p)){if(types.isProxy(p)||Object.getOwnPropertyDescriptor(p,'trustedAppAssembly'))throw Error('INVALID_SERVER_APP_ASSEMBLY');}
+  try{
+  const sdpDescriptor=assembly?{value:assembly.sdpHostEngine,enumerable:true}:Object.getOwnPropertyDescriptor(serverOptions,'sdpHostEngine');let sdpHostEngine=null;
   if(sdpDescriptor){
     if(!Object.hasOwn(sdpDescriptor,'value')||!sdpDescriptor.enumerable||sdpDescriptor.value!==undefined&&!isOwnedSdpHostEngine(sdpDescriptor.value))throw Error('INVALID_SERVER_AI_CONFIGURATION');
     sdpHostEngine=sdpDescriptor.value??null;
@@ -205,10 +217,59 @@ export function createOnServer(serverOptions={}) {
   if(nativeDescriptor){if(!Object.hasOwn(nativeDescriptor,'value')||!nativeDescriptor.enumerable)throw Error('INVALID_SERVER_AI_CONFIGURATION');
     nativeConfiguration=captureNativeHostConfiguration(nativeDescriptor.value);}
   else for(let p=Object.getPrototypeOf(serverOptions);p;p=Object.getPrototypeOf(p)){if(types.isProxy(p)||Object.getOwnPropertyDescriptor(p,'nativeHostConfiguration'))throw Error('INVALID_SERVER_AI_CONFIGURATION');}
-  const {engine={evidenceMode:'disconnected'},actionConfiguration:givenActionConfiguration,sdpActionStartup,ai,resolveAiIdentity,readLearnerSupportIdentity,aiEnv=process.env,appCredentialVault,vaultAiConfiguration,aiConnectionConfiguration,allowLoopbackAiHttp=false,aiTimeoutMs=10000,
-    scanner=createProjectScanner(),assetsRoot=root,clock=()=>new Date(),readTimeoutMs=10000,requestTimeoutMs=15000}=serverOptions;
+  const remoteFinishDescriptor=Object.getOwnPropertyDescriptor(serverOptions,'finishRemoteOwnerHostFactory');let remoteFinishFactory;
+  if(remoteFinishDescriptor){if(!Object.hasOwn(remoteFinishDescriptor,'value')||!remoteFinishDescriptor.enumerable||typeof remoteFinishDescriptor.value!=='function'||types.isProxy(remoteFinishDescriptor.value)||types.isAsyncFunction(remoteFinishDescriptor.value)||types.isGeneratorFunction(remoteFinishDescriptor.value))throw Error('INVALID_SERVER_FINISH_REMOTE_CONFIGURATION');remoteFinishFactory=remoteFinishDescriptor.value;}
+  else for(let p=Object.getPrototypeOf(serverOptions);p;p=Object.getPrototypeOf(p)){if(types.isProxy(p)||Object.getOwnPropertyDescriptor(p,'finishRemoteOwnerHostFactory'))throw Error('INVALID_SERVER_FINISH_REMOTE_CONFIGURATION');}
+  const remoteStopDescriptor=Object.getOwnPropertyDescriptor(serverOptions,'onRemoteFinishStopReady');let remoteStopReady;
+  if(remoteStopDescriptor){if(!Object.hasOwn(remoteStopDescriptor,'value')||!remoteStopDescriptor.enumerable||!remoteFinishFactory||typeof remoteStopDescriptor.value!=='function'||types.isProxy(remoteStopDescriptor.value)||types.isAsyncFunction(remoteStopDescriptor.value)||types.isGeneratorFunction(remoteStopDescriptor.value))throw Error('INVALID_SERVER_FINISH_REMOTE_CONFIGURATION');remoteStopReady=remoteStopDescriptor.value;}
+  else for(let p=Object.getPrototypeOf(serverOptions);p;p=Object.getPrototypeOf(p)){if(types.isProxy(p)||Object.getOwnPropertyDescriptor(p,'onRemoteFinishStopReady'))throw Error('INVALID_SERVER_FINISH_REMOTE_CONFIGURATION');}
+  const finishDescriptor=Object.getOwnPropertyDescriptor(serverOptions,'finishOwnerHostFactory');let finishFactory;
+  if(finishDescriptor){
+    if(!Object.hasOwn(finishDescriptor,'value')||!finishDescriptor.enumerable||typeof finishDescriptor.value!=='function'||types.isProxy(finishDescriptor.value)||types.isAsyncFunction(finishDescriptor.value)||types.isGeneratorFunction(finishDescriptor.value))throw Error('INVALID_SERVER_FINISH_CONFIGURATION');
+    finishFactory=finishDescriptor.value;
+  }else for(let p=Object.getPrototypeOf(serverOptions);p;p=Object.getPrototypeOf(p)){if(types.isProxy(p)||Object.getOwnPropertyDescriptor(p,'finishOwnerHostFactory'))throw Error('INVALID_SERVER_FINISH_CONFIGURATION');}
+  const {engine:baseEngine={evidenceMode:'disconnected'},actionConfiguration:givenActionConfiguration,sdpActionStartup:baseSdpActionStartup,ai,resolveAiIdentity,readLearnerSupportIdentity,aiEnv=process.env,appCredentialVault,vaultAiConfiguration,aiConnectionConfiguration,allowLoopbackAiHttp=false,aiTimeoutMs=300000,
+    scanner=createProjectScanner(),assetsRoot=root,clock=()=>new Date(),readTimeoutMs=10000,requestTimeoutMs=15000,
+    aiRequestTimeoutMs=Object.hasOwn(serverOptions,'requestTimeoutMs')?requestTimeoutMs:305000}=serverOptions;
+  const engine=assembly?.engine??baseEngine,sdpActionStartup=assembly?.sdpActionStartup??baseSdpActionStartup;
+  if(!Number.isSafeInteger(aiRequestTimeoutMs)||aiRequestTimeoutMs<=0||aiRequestTimeoutMs>420000)throw Error('INVALID_SERVER_AI_CONFIGURATION');
   if(nativeConfiguration&&(ai!==undefined||resolveAiIdentity!==undefined||readLearnerSupportIdentity!==undefined||appCredentialVault!==undefined||vaultAiConfiguration!==undefined||aiConnectionConfiguration!==undefined||typeof aiEnv.ON_AI_APP_KEY==='string'&&aiEnv.ON_AI_APP_KEY))throw Error('INVALID_SERVER_AI_CONFIGURATION');
   const nativeHost=nativeConfiguration?createNativeHostContext(nativeConfiguration):null;
+  // Host-only injection. No request, environment variable, HTTP route or getter selects this port.
+  let finishOwner,remoteFinishOwner,remoteFinishPort,finishClosed=false,remoteFinishClosed=false;const finishOperations=new Set(),issuedFinishOperations=new WeakSet();
+  const stopRemoteFinish=()=>{
+    if(remoteFinishClosed)return;remoteFinishClosed=true;
+    try{remoteFinishOwner?.close();}finally{remoteFinishPort?.close();}
+  };
+  const closeFinish=()=>{
+    if(finishClosed)return;finishClosed=true;
+    try{finishOwner?.close();}finally{try{stopRemoteFinish();}finally{for(const cap of finishOperations)closeNativeHostOperation(cap);finishOperations.clear();}}
+  };
+  try{
+    if(finishFactory){
+      if(!nativeHost)throw Error('INVALID_SERVER_FINISH_CONFIGURATION');
+      const alive=()=>{if(finishClosed)throw Error('FINISH_OWNER_HOST_CLOSED');};
+      const port=Object.freeze({
+        async open(options){alive();const cap=await openNativeHostOperation(nativeHost,options);if(finishClosed){closeNativeHostOperation(cap);throw Error('FINISH_OWNER_HOST_CLOSED');}finishOperations.add(cap);issuedFinishOperations.add(cap);return cap;},
+        read(cap){alive();if(!finishOperations.has(cap))throw Error('FINISH_NATIVE_OPERATION_UNOWNED');return readNativeHostOperation(nativeHost,cap);},
+        assert(cap){alive();if(!finishOperations.has(cap))throw Error('FINISH_NATIVE_OPERATION_UNOWNED');return assertNativeHostOperation(nativeHost,cap);},
+        continuity(previous,current){alive();if(!issuedFinishOperations.has(previous)||!finishOperations.has(current))throw Error('FINISH_NATIVE_OPERATION_UNOWNED');return assertNativeHostContinuity(nativeHost,previous,current);},
+        closeOperation(cap){if(!finishOperations.delete(cap))throw Error('FINISH_NATIVE_OPERATION_UNOWNED');closeNativeHostOperation(cap);},
+      });
+      const value=finishFactory(port);
+      if(types.isPromise(value)){Promise.prototype.catch.call(value,()=>{});throw Error('INVALID_SERVER_FINISH_CONFIGURATION');}
+      if(!value||typeof value!=='object'||types.isProxy(value)||![Object.prototype,null].includes(Object.getPrototypeOf(value)))throw Error('INVALID_SERVER_FINISH_CONFIGURATION');
+      const fields=Object.getOwnPropertyDescriptors(value);
+      if(Reflect.ownKeys(fields).length!==1||!Object.hasOwn(fields,'close')||!Object.hasOwn(fields.close,'value')||typeof fields.close.value!=='function'||types.isProxy(fields.close.value)||types.isAsyncFunction(fields.close.value)||types.isGeneratorFunction(fields.close.value))throw Error('INVALID_SERVER_FINISH_CONFIGURATION');
+      finishOwner=Object.freeze({close:fields.close.value});
+    }
+    if(remoteFinishFactory){
+      if(!nativeHost)throw Error('INVALID_SERVER_FINISH_REMOTE_CONFIGURATION');remoteFinishPort=createNativeFinishCheckpointPort(nativeHost);const value=remoteFinishFactory(remoteFinishPort.port);
+      if(types.isPromise(value)){Promise.prototype.catch.call(value,()=>{});throw Error('INVALID_SERVER_FINISH_REMOTE_CONFIGURATION');}
+      if(!value||typeof value!=='object'||types.isProxy(value)||![Object.prototype,null].includes(Object.getPrototypeOf(value)))throw Error('INVALID_SERVER_FINISH_REMOTE_CONFIGURATION');const fields=Object.getOwnPropertyDescriptors(value);
+      if(Reflect.ownKeys(fields).length!==1||!Object.hasOwn(fields,'close')||!Object.hasOwn(fields.close,'value')||typeof fields.close.value!=='function'||types.isProxy(fields.close.value)||types.isAsyncFunction(fields.close.value)||types.isGeneratorFunction(fields.close.value))throw Error('INVALID_SERVER_FINISH_REMOTE_CONFIGURATION');remoteFinishOwner=Object.freeze({close:fields.close.value});
+      if(remoteStopReady){const result=remoteStopReady(stopRemoteFinish);if(types.isPromise(result)){Promise.prototype.catch.call(result,()=>{});throw Error('INVALID_SERVER_FINISH_REMOTE_CONFIGURATION');}if(result!==undefined)throw Error('INVALID_SERVER_FINISH_REMOTE_CONFIGURATION');}
+    }
   // c2(#978): host 가 sdpActionStartup({databasePath, policy})을 주면, 이 서버가 만든 SDP host engine 과 genuine native host 를
   // createSdpActionConfiguration 에 그대로 넘긴다(자기 철회 뒤 본인 영수증 포함). identityVersion 은 같은 native host operation 에서 읽는다.
   // 학생 body·header 로 DB·정책·engine·nativeHost 를 고를 수 없다. actionConfiguration 과 함께 주거나 SDP·native host 가 없으면 거절한다.
@@ -222,7 +283,7 @@ export function createOnServer(serverOptions={}) {
         try{return (await readNativeHostOperation(nativeHost,cap)).identityVersion;}finally{closeNativeHostOperation(cap);}
       };
       actionConfiguration=createSdpActionConfiguration({sdpHost:sdpHostEngine,nativeHost,readIdentityVersion,databasePath:sdpActionStartup.databasePath,policy:sdpActionStartup.policy});
-    }catch(error){nativeHost?.close();throw error;}
+    }catch(error){throw error;}
   }
   if(!Number.isSafeInteger(requestTimeoutMs)||requestTimeoutMs<=0||requestTimeoutMs>120000||resolveAiIdentity!==undefined&&typeof resolveAiIdentity!=='function'
     ||readLearnerSupportIdentity!==undefined&&(typeof readLearnerSupportIdentity!=='function'||types.isProxy(readLearnerSupportIdentity))
@@ -240,20 +301,20 @@ export function createOnServer(serverOptions={}) {
         || !resolveAiIdentity&&typeof engine.readAiIdentity!=='function')))throw Error('INVALID_SERVER_CONNECTION_CONFIGURATION');
   // Shared identity/binding logic, parameterized by an operation's own readers.
   // The manager never retains the lifetime or reader of an HTTP request.
-  function sourceReader({call,bounded,assertAlive}) {
+  function sourceReader({call,bounded,assertAlive,sourceEngine=engine}) {
     async function captureSource(){
       const identity=assertData('identity',await call('readIdentity'));
-      const source=Object.freeze({sourceSubjectId:identity.user.id,projectId:engine.projectId,sessionId:identity.session.id});
+      const source=Object.freeze({sourceSubjectId:identity.user.id,projectId:sourceEngine.projectId,sessionId:identity.session.id});
       if(!id(source.projectId)||identity.session.status!=='active')throw engineError('SUBJECT_SCOPE_UNVERIFIED','');
       return {identity,source};
     }
     async function assertCurrent(source){
       const identity=assertData('identity',await call('readIdentity'));
-      if(identity.user.id!==source.sourceSubjectId||identity.session.id!==source.sessionId||identity.session.status!=='active'||engine.projectId!==source.projectId)
+      if(identity.user.id!==source.sourceSubjectId||identity.session.id!==source.sessionId||identity.session.status!=='active'||sourceEngine.projectId!==source.projectId)
         throw engineError('SUBJECT_SCOPE_UNVERIFIED','');
     }
     async function readMapping(source){
-      if(!resolveAiIdentity&&typeof engine.readAiIdentity!=='function')throw engineError('ON_AI_PROVISIONING_PENDING','');
+      if(!resolveAiIdentity&&typeof sourceEngine.readAiIdentity!=='function')throw engineError('ON_AI_PROVISIONING_PENDING','');
       let raw;
       try {raw=resolveAiIdentity?await bounded(signal=>resolveAiIdentity(source,{signal})):await call('readAiIdentity',source);}
       catch(error){if(['REQUEST_TIMEOUT','REQUEST_CANCELLED','ENGINE_TIMEOUT'].includes(error?.code))throw error;throw engineError('ON_AI_PROVISIONING_PENDING','');}
@@ -310,7 +371,14 @@ export function createOnServer(serverOptions={}) {
       if(!request.actionContext)request.actionContext=Object.freeze(structuredClone(snapshot));
       return snapshot;
     }:undefined});
-  const meta=()=>({mode,checkedAt:clock().toISOString(),starterVersion:'0.1.0'});
+  // A presentation hint for the already constrained installed PC-only branch.
+  // It grants no authority and is never selected from a request or environment.
+  const uiDescriptor=Object.getOwnPropertyDescriptor(serverOptions,'uiMode');
+  if(uiDescriptor&&(!Object.hasOwn(uiDescriptor,'value')||!uiDescriptor.enumerable||uiDescriptor.value!=='local-pc'
+    ||mode!=='disconnected'||nativeHost||connections.available||(mappedAi??defaultAi).connectionInfo()?.configured===true))throw Error('INVALID_SERVER_UI_MODE');
+  for(let p=Object.getPrototypeOf(serverOptions);p;p=Object.getPrototypeOf(p))if(Object.getOwnPropertyDescriptor(p,'uiMode'))throw Error('INVALID_SERVER_UI_MODE');
+  const uiMode=uiDescriptor?'local-pc':null;
+  const meta=()=>({mode,checkedAt:clock().toISOString(),starterVersion:'0.1.0',...(uiMode?{uiMode}: {})});
   const server=http.createServer(async(req,res)=>{
     // Register before identity/events reads: disconnects during preparation must
     // cancel the later AI operation, even when an adapter ignores cancellation.
@@ -322,7 +390,14 @@ export function createOnServer(serverOptions={}) {
     let supportDeadline;
     const disconnect=()=>lifetime.abort();
     res.once('close',disconnect);req.once('aborted',disconnect);
-    const requestTimer=setTimeout(()=>{requestTimedOut=true;lifetime.abort();},requestTimeoutMs);
+    const aiDeadlineRoute=req.method==='POST'&&['/api/ai/check','/api/ai/explain','/api/learner-support/gpt'].includes(req.url);
+    const requestLimit=aiDeadlineRoute?aiRequestTimeoutMs:requestTimeoutMs;
+    const requestTimer=setTimeout(()=>{requestTimedOut=true;lifetime.abort();},requestLimit);
+    if(aiDeadlineRoute&&Number.isSafeInteger(aiTimeoutMs)&&aiTimeoutMs>0&&aiTimeoutMs<=420000){
+      const routeLimit=Math.min(aiTimeoutMs,requestLimit);
+      supportDeadline={wall:requestStartedAt.wall+routeLimit,monotonic:requestStartedAt.monotonic+routeLimit};
+      supportTimer=setTimeout(()=>{requestTimedOut=true;lifetime.abort();},routeLimit);
+    }
     function assertAlive(){if(supportDeadline&&(Date.now()>=supportDeadline.wall||performance.now()>=supportDeadline.monotonic)){requestTimedOut=true;lifetime.abort();}if(requestTimedOut)throw engineError('REQUEST_TIMEOUT','');if(lifetime.signal.aborted||res.destroyed)throw engineError('REQUEST_CANCELLED','');}
     async function bounded(work){
       assertAlive();let cancel;
@@ -333,21 +408,26 @@ export function createOnServer(serverOptions={}) {
       try {const value=await Promise.race([Promise.resolve().then(()=>{assertAlive();return work(lifetime.signal);}),stopped]);assertAlive();return value;}
       finally {lifetime.signal.removeEventListener('abort',cancel);}
     }
-    async function call(name,...args){
+    async function callEngine(selectedEngine,name,...args){
       assertAlive();
-      let timer,cancel;const controller=new AbortController();
+      let timer,cancel,readTimedOut=false;const controller=new AbortController();
       const stopped=new Promise((_,reject)=>{
         cancel=()=>{controller.abort();reject(engineError(requestTimedOut?'REQUEST_TIMEOUT':'REQUEST_CANCELLED',''));};
         lifetime.signal.addEventListener('abort',cancel,{once:true});
-        timer=setTimeout(()=>{controller.abort();reject(engineError('ENGINE_TIMEOUT',''));},readTimeoutMs);
+        timer=setTimeout(()=>{readTimedOut=true;controller.abort();reject(engineError('ENGINE_TIMEOUT',''));},readTimeoutMs);
       });
-      try{const value=await Promise.race([engineMethod(engine,name)(...args,{signal:controller.signal}),stopped]);assertAlive();return value;}
+      try{const value=await Promise.race([engineMethod(selectedEngine,name)(...args,{signal:controller.signal}),stopped]);assertAlive();return value;}
+      catch(error){assertAlive();if(readTimedOut)throw engineError('ENGINE_TIMEOUT','');throw error;}
       finally{clearTimeout(timer);lifetime.signal.removeEventListener('abort',cancel);controller.abort();}
     }
+    const call=(name,...args)=>callEngine(engine,name,...args);
     const requestId=randomUUID();
     let actionRequest=false;
     const send=(status,body)=>{if(res.destroyed||res.writableEnded)return;res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff','x-on-request-id':requestId});res.end(JSON.stringify({...body,meta:meta()}));};
     const {captureSource,assertCurrent,readMapping,finishMapping}=sourceReader({call,bounded,assertAlive});
+    // Assembly UI is student code. Privileged action source always comes directly
+    // from the genuine SDP owner, never from worker identity/DTO claims.
+    const actionSource=assembly?sourceReader({call:(name,...args)=>callEngine(sdpHostEngine,name,...args),bounded,assertAlive,sourceEngine:sdpHostEngine}):{captureSource,assertCurrent};
     const authOptions=(binding)=>({expectedScope:Object.freeze({subjectId:binding.canonicalStudentId,projectId:binding.projectId,appId:'aleph-on',audience:'on-client'}),
       expectedContext:Object.freeze({alephUserId:binding.alephUserId,siteId:binding.siteId,identityVersion:binding.identityVersion}),signal:lifetime.signal});
     try{
@@ -359,6 +439,12 @@ export function createOnServer(serverOptions={}) {
       if(url.search)throw engineError('QUERY_REJECTED','지원하지 않는 요청입니다.',400);
       if(url.pathname.startsWith('/api/')&&req.headers['sec-fetch-site']==='cross-site')throw engineError('ORIGIN_REJECTED','');
       if(req.method==='POST'&&req.headers.origin!==`http://${host}`)throw engineError('ORIGIN_REJECTED','앱 화면에서 다시 요청하세요.',403);
+      if(url.pathname==='/api/pc/status'){
+        if(req.method!=='GET'){send(405,{ok:false,error:{code:'METHOD_NOT_ALLOWED',message:'조회만 지원합니다.',retryable:false}});return;}
+        if(req.headers.origin!==undefined&&req.headers.origin!==`http://${host}`)throw engineError('ORIGIN_REJECTED','',403);
+        const data=await bounded(signal=>readPcStatus({signal,directory:assetsRoot}));
+        send(200,{ok:true,data});return;
+      }
       if(url.pathname.startsWith('/api/native-login/')){
         const kind=url.pathname.slice('/api/native-login/'.length);
         if(req.method!=='POST'||!['start','status','redeem','current','cancel'].includes(kind)){send(404,{ok:false,error:{code:'NOT_FOUND',message:'지원하지 않는 주소입니다.',retryable:false}});return;}
@@ -374,6 +460,14 @@ export function createOnServer(serverOptions={}) {
         const data=await readFile(resolve(assetsRoot,files.get(url.pathname)));
         const type=url.pathname.endsWith('.webp')?'image/webp':url.pathname.endsWith('.css')?'text/css':url.pathname.endsWith('.js')||url.pathname.endsWith('.mjs')?'text/javascript':'text/html';
         res.writeHead(200,{'content-type':type==='image/webp'?type:`${type}; charset=utf-8`,'cache-control':'no-store','content-security-policy':"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; frame-ancestors 'none'; base-uri 'none'",'x-content-type-options':'nosniff'});res.end(data);return;
+      }
+      if(req.method==='GET'&&appearanceRoutes.has(url.pathname)){
+        // 요청마다 같은 검증기로 다시 읽는다. 꾸밈 오류는 invalid DTO(짧은 안내)이고 다른 기능 경로에 영향을 주지 않는다.
+        const kind=appearanceRoutes.get(url.pathname),read=await readStudentAppearance(resolve(assetsRoot)),view=appearanceView(read);
+        const image=kind==='image'&&read.state==='valid'?read.images.find(row=>'/'+row.path===url.pathname)??null:null;
+        if(kind==='image'&&!image){send(404,{ok:false,error:{code:'NOT_FOUND',message:'지원하지 않는 주소입니다.',retryable:false}});return;}
+        const data=kind==='json'?Buffer.from(JSON.stringify(view),'utf8'):kind==='css'?Buffer.from(appearanceCss(view),'utf8'):image.bytes;
+        res.writeHead(200,{'content-type':kind==='json'?'application/json; charset=utf-8':kind==='css'?'text/css; charset=utf-8':image.type,'cache-control':'no-store','content-security-policy':"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; frame-ancestors 'none'; base-uri 'none'",'x-content-type-options':'nosniff'});res.end(data);return;
       }
       if(req.method==='POST'&&connectionRoutes.has(url.pathname)){
         const kind=connectionRoutes.get(url.pathname),keys=kind==='start'?[]:['connectionId'];
@@ -423,7 +517,7 @@ export function createOnServer(serverOptions={}) {
         // source identity even for a replay; service also rechecks all generations.
         if(!actionConfiguration){const projected=projectAction({ok:false,error:{code:'ACTION_UNSUPPORTED'}},method,input);send(projected.status,projected.body);return;}
         let source;
-        try{({source}=await captureSource());}
+        try{({source}=await actionSource.captureSource());}
         catch(error){
           // c2(#978): 이 기기를 스스로 철회한 뒤에는 현재 SDP identity 를 읽을 수 없다. 결과 조회이고 엔진이 본인 영수증 경로를 줄 때만
           // 현재 context 없이 서비스로 넘긴다. 서비스는 소비된 device:revoke 행만 본인 영수증(철회 기기 인증서·native canonical4·host project)으로 읽고,
@@ -440,7 +534,7 @@ export function createOnServer(serverOptions={}) {
           const projected=projectAction(structuredClone(ownRaw),'result',input);send(projected.status,projected.body);return;
         }
         let raw;
-        const actionRequestScope={source,assertCurrent,actionContext:null};
+        const actionRequestScope={source,assertCurrent:actionSource.assertCurrent,actionContext:null};
         try{raw=await actionRequests.run(actionRequestScope,()=>bounded(signal=>actions[method](input,{signal})));}
         catch(error){
           if(error?.code==='REQUEST_TIMEOUT'){
@@ -449,7 +543,7 @@ export function createOnServer(serverOptions={}) {
           throw error;
         }
         const snapshot=structuredClone(raw);
-        await assertCurrent(source);assertAlive();
+        await actionSource.assertCurrent(source);assertAlive();
         // The last identity read can yield after the module has committed. Bind
         // the public receipt to the full current authority, not just stable IDs.
         if(snapshot?.ok===true){
@@ -464,13 +558,12 @@ export function createOnServer(serverOptions={}) {
         send(projected.status,projected.body);return;
       }
       if(req.method==='POST'&&url.pathname==='/api/ai/explain'&&nativeHost){
-        if(!Number.isSafeInteger(aiTimeoutMs)||aiTimeoutMs<=0||aiTimeoutMs>120000){
+        if(!Number.isSafeInteger(aiTimeoutMs)||aiTimeoutMs<=0||aiTimeoutMs>420000){
           send(503,{ok:false,error:{code:'WB_CLCO_INVALID_LIMIT',message:aiErrorMessages.WB_CLCO_INVALID_LIMIT,retryable:false}});return;
         }
-        const routeLimit=Math.min(aiTimeoutMs,requestTimeoutMs);
+        const routeLimit=Math.min(aiTimeoutMs,requestLimit);
         supportDeadline={wall:requestStartedAt.wall+routeLimit,monotonic:requestStartedAt.monotonic+routeLimit};
         const remaining=()=>{assertAlive();return Math.max(1,Math.floor(Math.min(supportDeadline.wall-Date.now(),supportDeadline.monotonic-performance.now())));};
-        supportTimer=setTimeout(()=>{requestTimedOut=true;lifetime.abort();},remaining());
         let nativeOperation=null,sourceOperation=null;
         const sourceCall=async work=>{try{return await bounded(work);}catch(error){assertAlive();if(['REQUEST_TIMEOUT','REQUEST_CANCELLED'].includes(error?.code))throw error;throw engineError('ON_AI_PROVISIONING_PENDING','');}};
         try{
@@ -545,14 +638,13 @@ export function createOnServer(serverOptions={}) {
       }
       if(req.method==='POST'&&url.pathname==='/api/ai/check'&&nativeHost){
         nativeAiCheck=true; // 이 요청의 바깥 catch 도 같은 retryable 정책을 쓴다(서버가 정한 표시, 요청마다 새로 만든다).
-        if(!Number.isSafeInteger(aiTimeoutMs)||aiTimeoutMs<=0||aiTimeoutMs>120000){
+        if(!Number.isSafeInteger(aiTimeoutMs)||aiTimeoutMs<=0||aiTimeoutMs>420000){
           send(503,{ok:false,error:{code:'WB_CLCO_INVALID_LIMIT',message:aiErrorMessages.WB_CLCO_INVALID_LIMIT,retryable:false}});return;
         }
         // One deadline covers the body, original native operation, vault, models and every recheck.
-        const routeLimit=Math.min(aiTimeoutMs,requestTimeoutMs);
+        const routeLimit=Math.min(aiTimeoutMs,requestLimit);
         supportDeadline={wall:requestStartedAt.wall+routeLimit,monotonic:requestStartedAt.monotonic+routeLimit};
         const remaining=()=>{assertAlive();return Math.max(1,Math.floor(Math.min(supportDeadline.wall-Date.now(),supportDeadline.monotonic-performance.now())));};
-        supportTimer=setTimeout(()=>{requestTimedOut=true;lifetime.abort();},remaining());
         let nativeOperation=null;
         try{
           if(Number(req.headers['content-length']??0)>8192)throw engineError('REQUEST_TOO_LARGE','',413);
@@ -618,16 +710,17 @@ export function createOnServer(serverOptions={}) {
         assertAlive();send(200,{ok:true,data:guide});return;
       }
       if(req.method==='POST'&&url.pathname==='/api/learner-support/gpt'){
-        if(!Number.isSafeInteger(aiTimeoutMs)||aiTimeoutMs<=0||aiTimeoutMs>120000){
+        if(!Number.isSafeInteger(aiTimeoutMs)||aiTimeoutMs<=0||aiTimeoutMs>420000){
           send(503,{ok:false,error:{code:'WB_CLCO_INVALID_LIMIT',message:aiErrorMessages.WB_CLCO_INVALID_LIMIT,retryable:false}});return;
         }
         // One route deadline includes body, host identity, vault, pre/post auth and transport.
-        supportDeadline={wall:Date.now()+aiTimeoutMs,monotonic:performance.now()+aiTimeoutMs};
-        supportTimer=setTimeout(()=>{requestTimedOut=true;lifetime.abort();},aiTimeoutMs);
+        const routeLimit=Math.min(aiTimeoutMs,requestLimit);
+        supportDeadline={wall:requestStartedAt.wall+routeLimit,monotonic:requestStartedAt.monotonic+routeLimit};
+        const remaining=()=>{assertAlive();return Math.max(1,Math.floor(Math.min(supportDeadline.wall-Date.now(),supportDeadline.monotonic-performance.now())));};
         if(Number(req.headers['content-length']??0)>8192)throw engineError('REQUEST_TOO_LARGE','',413);
         const input=await bounded(()=>jsonBody(req,['problemKind'],(_key,value)=>isLearnerSupportProblemKind(value)));
         let nativeOperation=null;
-        if(nativeHost){try{nativeOperation=await bounded(signal=>openNativeHostOperation(nativeHost,{signal,timeoutMs:aiTimeoutMs}));}catch{throw engineError('ON_AI_PROVISIONING_PENDING','');}}
+        if(nativeHost){try{nativeOperation=await bounded(signal=>openNativeHostOperation(nativeHost,{signal,timeoutMs:remaining()}));}catch{throw engineError('ON_AI_PROVISIONING_PENDING','');}}
         try{
         const readHost=async(signal=lifetime.signal)=>{
           if(nativeHost){if(signal?.aborted)throw engineError('REQUEST_CANCELLED','');try{const value=await bounded(()=>readNativeHostOperation(nativeHost,nativeOperation));assertAlive();return value;}catch(error){if(['REQUEST_TIMEOUT','REQUEST_CANCELLED'].includes(error?.code))throw error;throw engineError('ON_AI_PROVISIONING_PENDING','');}}
@@ -642,7 +735,7 @@ export function createOnServer(serverOptions={}) {
             ||!Number.isSafeInteger(hostIdentity.identityVersion)||hostIdentity.identityVersion<=0)throw engineError('ON_AI_PROVISIONING_PENDING','');
           assertAlive();return hostIdentity;
         };
-        const identity=await readHost(),service=nativeHost?createVaultOnAiService({enabled:true,vault:createNativeOperationVault(nativeHost,nativeOperation),timeoutMs:aiTimeoutMs,
+        const identity=await readHost(),service=nativeHost?createVaultOnAiService({enabled:true,vault:createNativeOperationVault(nativeHost,nativeOperation),timeoutMs:remaining(),
           appAuthorization:nativeConfiguration.fetchImpl?{fetchImpl:nativeConfiguration.fetchImpl}:{}}):mappedService();
         const observation=readLocalLearnerSupportObservation(mode,service);
         const prepared=prepareLearnerSupportRequest(input,observation,{signal:lifetime.signal});
@@ -702,8 +795,11 @@ export function createOnServer(serverOptions={}) {
     }finally{clearTimeout(requestTimer);clearTimeout(supportTimer);res.removeListener('close',disconnect);req.removeListener('aborted',disconnect);lifetime.abort();}
   });
   server.requestTimeout=15000;server.headersTimeout=10000;
-  server.once('close',()=>{connections.close();nativeHost?.close();for(const controller of connectionReads)controller.abort();});
+  const closeServerResources=()=>{try{closeFinish();}finally{connections.close();nativeHost?.close();for(const controller of connectionReads)controller.abort();assembly?.close().catch(()=>{});}};
+  server.once('close',closeServerResources);server.once('error',closeServerResources);
   return server;
+  }catch(error){try{closeFinish();}finally{nativeHost?.close();assembly?.close().catch(()=>{});}throw error;}
+  }catch(error){assembly?.close().catch(()=>{});throw error;}
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
   const args=process.argv.slice(2);let demo=false,actions=false,nativePath,sdpPath,actionsPath;
