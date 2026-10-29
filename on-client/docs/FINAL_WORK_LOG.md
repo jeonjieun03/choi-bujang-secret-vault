@@ -101,7 +101,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\start-alekov.ps1
 | 예제 실행 (리눅스 작업 환경) | SDP 서버 줄 「예제 자료 · 실제 연결 아님(demo)」 | 실제 실행 |
 | GET이 아닌 요청 | 0건 | 실제 실행 |
 | 경고 44→46건 변화, 5,000건 초과 일부 집계, 권한 없음, 조회 실패, 연결 모드 unknown·값 없음 | 기대한 문구 | 모의 입력 |
-| 학생 PC에서 「연결과 기록」 표 | **미확인** (학생이 `git pull` 후 확인 예정) | — |
+| 학생 PC에서 「연결과 기록」 표 (2026-10-29 오후 5:53:06, 기본 실행) | 네트워크 「읽음」 외부 인터페이스 20개 · IPv4 구성 20개 / 방화벽 「읽음」 Domain·Private·Public 켜짐 / Windows 경고·오류 「읽음」 경고 45건 · 오류 6건 / SDP 서버 「SDP 미연결」(disconnected, ENGINE_NOT_CONNECTED) — PC 조회 줄과 따로 표시 | **실측** (학생 PC) |
 
 ### 같은 결과를 다시 만드는 방법
 
