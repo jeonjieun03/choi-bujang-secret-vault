@@ -1115,12 +1115,180 @@ function renderVulnerabilities({ status, mode, data, error } = {}) {
   return box;
 }
 
-export function createStudentView() {
+// ── 총공세 2일차: 내 PC 관제 대시보드 (renderStatus 맨 위) ─────────────────────
+// - 값은 제공 기능 「내 PC 상태」와 같은 경로(/api/pc/status)를 학생 API(api.get)로 받아 씁니다. 학생 코드가 CPU·메모리·디스크를 다시 재지 않습니다.
+//   (제공: src/pc-status.mjs 가 일반 권한으로 측정, public/pc-status-view.mjs 가 제공 카드 표시 / 학생: 아래 카드 4개와 지난 조회 대비 변화)
+// - 사용자가 「내 PC 실측 조회」를 누를 때만 한 번 읽습니다. 자동 조회·타이머는 없습니다.
+// - 읽지 못한 값은 0이나 예시 값으로 채우지 않고 「확인 불가」와 이유를 보여 주며, 지난 값을 현재 값처럼 쓰지 않습니다.
+// - 이 칸의 값은 모두 이 PC 실측입니다. 예시 값은 표시하지 않습니다.
+const PC_PATH = '/api/pc/status';
+const PC_STALE_MS = 60000;
+const PC_REASONS = {
+  permission_denied: '읽기 권한 없음(permission_denied) · 관리자 권한으로 바꾸지 말고 담당자에게 확인',
+  unsupported: '이 운영체제에서는 조회하지 않음(unsupported)',
+  timeout: '조회 시간 초과(timeout)',
+  cancelled: '조회 취소(cancelled)',
+  query_failed: '조회 실패(query_failed)',
+  invalid_response: '응답 형식 확인 불가(invalid_response)',
+  invalid_sample: '측정 표본 확인 불가(invalid_sample)',
+};
+const PC_LIMITS = { cpuPercent: 85, memoryPercent: 90, diskFreePercent: 10 };
+const gb = (bytes) => bytes / 1024 ** 3;
+const gbText = (bytes) => `${gb(bytes).toFixed(1)} GB`;
+const isNum = (n) => typeof n === 'number' && Number.isFinite(n) && n >= 0;
+const signed = (n, digits, unit) => {
+  const v = Number(n.toFixed(digits));
+  if (v === 0) return `＝ 변화 없음`;
+  return `${v > 0 ? '▲ +' : '▼ −'}${Math.abs(v).toFixed(digits)}${unit}`;
+};
+const pcTime = (ms) => new Date(ms).toLocaleString('ko-KR');
+
+function readPcMetric(key, metric) {
+  if (!isObject(metric) || metric.state !== 'ok') {
+    const reason = isObject(metric) && typeof metric.reason === 'string' ? metric.reason : null;
+    return { ok: false, reason: reason && Object.hasOwn(PC_REASONS, reason) ? PC_REASONS[reason] : '이번 조회에서 값을 받지 못함' };
+  }
+  if (key === 'cpu' && isNum(metric.usagePercent) && metric.usagePercent <= 100) return { ok: true, cpu: metric.usagePercent, sampleMs: metric.sampleMs };
+  if (key === 'memory' && isNum(metric.usedBytes) && isNum(metric.totalBytes) && metric.totalBytes > 0 && metric.usedBytes <= metric.totalBytes) return { ok: true, used: metric.usedBytes, total: metric.totalBytes };
+  if (key === 'disk' && isNum(metric.freeBytes) && isNum(metric.totalBytes) && metric.totalBytes > 0 && metric.freeBytes <= metric.totalBytes) return { ok: true, free: metric.freeBytes, total: metric.totalBytes };
+  if (key === 'firewall' && Array.isArray(metric.profiles) && metric.profiles.length === 3
+    && ['Domain', 'Private', 'Public'].every((name) => metric.profiles.some((pr) => isObject(pr) && pr.name === name && typeof pr.enabled === 'boolean'))) {
+    return { ok: true, profiles: ['Domain', 'Private', 'Public'].map((name) => ({ name, enabled: metric.profiles.find((pr) => pr.name === name).enabled })) };
+  }
+  return { ok: false, reason: '응답의 값이나 단위를 확인할 수 없음' };
+}
+
+// 응답 한 건을 검사해 { measuredAt(ms), metrics:{cpu,memory,disk,firewall} } 로 바꿉니다. 맞지 않으면 null.
+function parsePcResult(result) {
+  if (!isObject(result) || result.ok !== true || !isObject(result.data)) return null;
+  const d = result.data;
+  if (d.schema !== 'aleph.on.pc-status.v1' || d.source !== 'local-pc' || typeof d.measuredAt !== 'string' || !isObject(d.metrics)) return null;
+  const measuredAt = Date.parse(d.measuredAt);
+  if (!Number.isFinite(measuredAt)) return null;
+  const metrics = {};
+  for (const key of ['cpu', 'memory', 'disk', 'firewall']) metrics[key] = readPcMetric(key, d.metrics[key]);
+  return { measuredAt, metrics };
+}
+
+function pcCard(key, title, current, previous, stale) {
+  const card = node('article', null, { class: 'card', 'data-student-pc-metric': key });
+  const m = current ? current.metrics[key] : null;
+  const p = previous && previous.metrics[key] && previous.metrics[key].ok ? previous.metrics[key] : null;
+  let value = '확인 불가', state = 'unknown', stateText = '확인 불가', delta = '', range = '', note = '';
+  if (m && m.ok) {
+    if (key === 'cpu') {
+      value = `${m.cpu.toFixed(1)} %`; range = `${isNum(m.sampleMs) ? `${m.sampleMs / 1000}초` : '짧은'} 구간 실측값`;
+      state = m.cpu >= PC_LIMITS.cpuPercent ? 'warn' : 'ok';
+      delta = p ? `${signed(m.cpu - p.cpu, 1, '%p')} (지난 ${p.cpu.toFixed(1)} %)` : '비교할 지난 값 없음';
+    } else if (key === 'memory') {
+      const pct = (100 * m.used) / m.total;
+      value = `${gbText(m.used)} / ${gbText(m.total)}`; range = `사용 중 / 전체 · ${pct.toFixed(1)} % 사용`;
+      state = pct >= PC_LIMITS.memoryPercent ? 'warn' : 'ok';
+      delta = p ? `${signed(gb(m.used) - gb(p.used), 1, ' GB')} (지난 ${gbText(p.used)})` : '비교할 지난 값 없음';
+    } else if (key === 'disk') {
+      const pct = (100 * m.free) / m.total;
+      value = `${gbText(m.free)} 남음`; range = `앱이 있는 디스크 · 전체 ${gbText(m.total)} 중 ${pct.toFixed(1)} %`;
+      state = pct < PC_LIMITS.diskFreePercent ? 'warn' : 'ok';
+      delta = p ? `${signed(gb(m.free) - gb(p.free), 1, ' GB')} (지난 ${gbText(p.free)})` : '비교할 지난 값 없음';
+    } else if (key === 'firewall') {
+      const off = m.profiles.filter((pr) => !pr.enabled).map((pr) => pr.name);
+      value = m.profiles.map((pr) => `${pr.name} ${pr.enabled ? '켜짐' : '꺼짐'}`).join(' · ');
+      range = 'Windows 방화벽 설정을 읽기만 함 · 켜짐은 보호 전체의 안전 판정이 아님';
+      state = off.length ? 'warn' : 'ok';
+      note = off.length ? `꺼진 프로필: ${off.join(', ')}` : '';
+      if (p) {
+        const changed = m.profiles.filter((pr) => p.profiles.find((q) => q.name === pr.name).enabled !== pr.enabled);
+        delta = changed.length ? `바뀜: ${changed.map((pr) => `${pr.name} ${pr.enabled ? '꺼짐→켜짐' : '켜짐→꺼짐'}`).join(', ')}` : '＝ 지난 조회와 같음';
+      } else delta = '비교할 지난 값 없음';
+    }
+    stateText = state === 'warn' ? '주의' : '정상(기준 이내)';
+    if (stale) { state = 'stale'; stateText = '오래됨'; }
+  } else if (m) {
+    note = `이유: ${m.reason}`;
+    delta = p ? '지난 값은 현재 상태로 쓰지 않음' : '';
+  } else {
+    note = current === null ? '아직 조회하지 않았습니다.' : '';
+    if (current === null) { state = 'idle'; stateText = '조회 전'; }
+  }
+  card.setAttribute('data-pc-state', state);
+  const chip = node('span', ` ${stateText}`, { class: `tag ${state === 'ok' ? 'state-ok' : state === 'warn' ? 'decision-challenge' : 'state-empty'}` });
+  const head = node('h4', title); head.append(chip);
+  card.append(head, node('p', value, { 'data-pc-field': 'value' }));
+  if (delta) card.append(node('p', delta, { class: 'muted', 'data-pc-field': 'delta' }));
+  if (range) card.append(node('p', range, { class: 'muted' }));
+  if (note) card.append(node('p', note, { class: 'muted', 'data-pc-field': 'note' }));
+  if (current && current.measuredAt) {
+    card.append(node('p', m && m.ok
+      ? `잰 시각: ${pcTime(current.measuredAt)} · 출처: 이 PC(local-pc) 실측`
+      : `조회 시각: ${pcTime(current.measuredAt)} · 이 항목은 이번에 값을 받지 못함`, { class: 'muted' }));
+  }
+  return card;
+}
+
+function renderPcDashboard(pc, onRequest) {
+  const box = node('section', null, { 'data-student-pc-dashboard': 'final-day2', 'aria-live': 'polite' });
+  box.append(node('h3', '내 PC 관제 대시보드'));
+  box.append(node('p', '제공 「내 PC 상태」와 같은 값(/api/pc/status)을 받아 이번 값과 지난 조회 값을 비교합니다. 관리자 권한을 쓰지 않고, 이 칸의 값은 모두 이 PC 실측입니다(예시 값 없음).', { class: 'muted' }));
+  const bar = node('div', null, { class: 'row' });
+  const button = node('button', pc.phase === 'loading' ? '읽는 중…' : '내 PC 실측 조회', { type: 'button', class: 'btn' });
+  if (pc.phase === 'loading') button.setAttribute('disabled', '');
+  button.addEventListener('click', onRequest);
+  bar.append(button);
+  const stale = pc.current ? Date.now() - pc.current.measuredAt > PC_STALE_MS : false;
+  let line;
+  if (pc.phase === 'loading') line = '이 PC에서 읽는 중입니다.';
+  else if (pc.phase === 'error') line = `이번 조회 실패: ${pc.error} · 지난 값은 현재 상태로 쓰지 않습니다. 버튼을 직접 다시 누르세요.`;
+  else if (!pc.current) line = '아직 조회하지 않았습니다. 「내 PC 실측 조회」를 누르면 한 번 읽습니다. 자동으로 읽지 않습니다.';
+  else {
+    line = `이번 실측 ${pcTime(pc.current.measuredAt)}`;
+    line += pc.previous ? ` · 지난 실측 ${pcTime(pc.previous.measuredAt)} (${Math.round((pc.current.measuredAt - pc.previous.measuredAt) / 1000)}초 전)` : ' · 지난 실측 없음(첫 조회)';
+    if (stale) line += ` · 실측 후 ${Math.round((Date.now() - pc.current.measuredAt) / 1000)}초 지나 「오래됨」으로 표시합니다. 다시 조회하세요.`;
+  }
+  bar.append(node('span', line, { class: 'muted', role: 'status' }));
+  box.append(bar);
+  const shown = pc.phase === 'error' ? { measuredAt: null, metrics: {} } : pc.current;
+  const grid = node('div', null, { class: 'grid-2' });
+  for (const [key, title] of [['cpu', 'CPU 사용률'], ['memory', '메모리 사용량'], ['disk', '디스크 남은 공간'], ['firewall', 'Windows 방화벽']]) {
+    const metricSource = shown && pc.phase === 'error' ? { measuredAt: null, metrics: { [key]: { ok: false, reason: pc.error } } } : shown;
+    grid.append(pcCard(key, title, metricSource, pc.previous, stale));
+  }
+  box.append(grid);
+  box.append(node('p', `▲▼ = 지난 조회 대비 변화 · 주의 기준: CPU ${PC_LIMITS.cpuPercent}% 이상, 메모리 ${PC_LIMITS.memoryPercent}% 이상, 디스크 남은 공간 ${PC_LIMITS.diskFreePercent}% 미만, 꺼진 방화벽 프로필 · 확인 불가 = 이번에 읽지 못함(0이나 예시 값으로 채우지 않음) · 「주의」는 문제 확인이 필요하다는 뜻이며 악성코드·침해 판정이 아닙니다.`, { class: 'muted' }));
+  return box;
+}
+
+export function createStudentView({ api, onChange } = {}) {
+  // 내 PC 대시보드 상태(화면을 다시 그려도 유지). 확인 티켓·비밀값은 없습니다.
+  const pc = { phase: 'idle', current: null, previous: null, error: null };
+  const rerender = () => { if (typeof onChange === 'function') onChange(); };
+  async function requestPc() {
+    if (pc.phase === 'loading') return;
+    if (!api || typeof api.get !== 'function') { pc.phase = 'error'; pc.error = '학생 API를 사용할 수 없음'; rerender(); return; }
+    pc.phase = 'loading'; rerender();
+    let result;
+    try { result = await api.get(PC_PATH); } catch { result = null; }
+    const parsed = parsePcResult(result);
+    if (parsed) {
+      if (pc.current) pc.previous = pc.current;
+      pc.current = parsed; pc.phase = 'ok'; pc.error = null;
+    } else {
+      const code = isObject(result) && isObject(result.error) ? safeCode(result.error.code) : '응답 형식 확인 불가';
+      pc.phase = 'error'; pc.error = code === 'NOT_ALLOWED' ? '이 시작 틀에서는 학생 API로 PC 값을 받을 수 없음(NOT_ALLOWED)' : `조회 실패(${code})`;
+      if (pc.current) pc.previous = pc.current;
+      pc.current = null;
+    }
+    rerender();
+  }
+  function renderStatusWithPc(input) {
+    const box = renderStatus(input);
+    box.insertBefore(renderPcDashboard(pc, requestPc), box.children[1] || null);
+    return box;
+  }
   return {
     renderIdentity,
     renderDecision,
     renderEvents,
-    renderStatus,
+    renderStatus: renderStatusWithPc,
     renderVulnerabilities,
     renderAiConnection,
     renderExplanation,
