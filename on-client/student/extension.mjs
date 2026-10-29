@@ -1177,7 +1177,7 @@ function pcCard(key, title, current, previous, stale) {
   let value = '확인 불가', state = 'unknown', stateText = '확인 불가', delta = '', range = '', note = '';
   if (m && m.ok) {
     if (key === 'cpu') {
-      value = `${m.cpu.toFixed(1)} %`; range = `${isNum(m.sampleMs) ? `${m.sampleMs / 1000}초` : '짧은'} 구간 실측값`;
+      value = `${m.cpu.toFixed(1)} %`; range = `조회하는 순간 ${isNum(m.sampleMs) ? `${m.sampleMs / 1000}초` : '짧은'} 구간 실측값 · 같은 순간에 방화벽·기록 조회가 함께 실행되어 작업 관리자(평소 평균)보다 높게 나올 수 있음`;
       state = m.cpu >= PC_LIMITS.cpuPercent ? 'warn' : 'ok';
       delta = p ? `${signed(m.cpu - p.cpu, 1, '%p')} (지난 ${p.cpu.toFixed(1)} %)` : '비교할 지난 값 없음';
     } else if (key === 'memory') {
