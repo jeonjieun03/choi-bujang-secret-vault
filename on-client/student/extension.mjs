@@ -1281,7 +1281,7 @@ export function createStudentView({ api, onChange } = {}) {
   }
   function renderStatusWithPc(input) {
     const box = renderStatus(input);
-    box.insertBefore(renderPcDashboard(pc, requestPc), box.children[1] || null);
+    box.insertBefore(renderPcDashboard(pc, requestPc), box.firstChild); // 관제 대시보드형: 카드 4개를 칸 맨 위에
     return box;
   }
   return {
