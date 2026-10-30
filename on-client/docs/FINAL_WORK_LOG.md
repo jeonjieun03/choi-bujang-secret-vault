@@ -193,4 +193,4 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\start-alekov.ps1
 
 | 확인 | 결과 |
 |---|---|
-| 시연 순서대로 한 번 연습 | **미확인** (학생이 연습 후 확인 예정) |
+| 시연 순서(FINAL_DEMO 2장 0~5번)대로 한 번 연습 (2026-10-30 오후 5:03 무렵, 학생 PC) | 끝까지 막힌 곳 없이 진행됨 — **학생 진술**(캡처 없음) |
