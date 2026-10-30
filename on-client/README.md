@@ -30,6 +30,8 @@ npm start도 같은 서버를 켭니다. 기본 실행은 실제 회사 시스�
 
 ## 학생 부분 (21단계, 학생 작성)
 
+> **처음 켜 보는 사람은 [docs/QUICK_START.md](docs/QUICK_START.md)(실행 안내 한 장)부터 보세요.**
+
 > 이 아래는 학생이 덧붙인 부분입니다. 위의 제공 README 내용은 고치지 않았습니다. 자세한 실행 절차·구성도·장애 안내·미확인 항목은 [docs/STUDENT_RUNBOOK.md](docs/STUDENT_RUNBOOK.md)에 있습니다.
 
 ### 목적
