@@ -1288,64 +1288,183 @@ function recordsTable(pc, input) {
   return box;
 }
 
+// ── 총공세 4일차: 화면 정리 · 「다시 조회」·대기 표시 · 오류 화면 · ② 상태 추이 · ③ 점검 기록 ──────────
+// - 순서: 버튼·상태 줄 → (실패 시) 오류 안내 → ① 지금 상태(카드 4개) → ② 상태 추이 → ③ 점검 기록 → 연결과 기록(3일차) → 기준 설명.
+// - 추이·기록은 이 화면 메모리에만 두고 저장하지 않습니다(새로 고치면 지워짐). 브라우저 저장소를 쓰지 않습니다.
+// - 실패하면 무엇이 안 됐는지와 다음에 할 일을 보여 주고, 지난 값이나 예시 값으로 채우지 않습니다.
+// - 화면이 다시 그려져도 버튼에 있던 초점을 되살려 키보드(Tab·Enter)만으로 계속 쓸 수 있게 합니다.
+const PC_ITEMS = [['cpu', 'CPU'], ['memory', '메모리'], ['disk', '디스크'], ['firewall', '방화벽'], ['network', '네트워크'], ['events', 'Windows 기록']];
+const PC_HISTORY_MAX = 10;
+const PC_LOG_MAX = 20;
+const PC_ERROR_HELP = {
+  NETWORK_ERROR: { title: '앱 서버에 연결할 수 없음', next: ['앱을 켠 PowerShell 창이 열려 있는지 확인합니다.', '꺼져 있으면 실행 명령으로 앱을 다시 켭니다.', '「다시 조회」를 누릅니다.'] },
+  TIMEOUT: { title: '조회 시간 초과', next: ['잠시 기다린 뒤 「다시 조회」를 누릅니다.', '계속되면 PowerShell 창의 메시지를 확인합니다.'] },
+  REQUEST_TIMEOUT: { title: '조회 시간 초과', next: ['잠시 기다린 뒤 「다시 조회」를 누릅니다.', '계속되면 PowerShell 창의 메시지를 확인합니다.'] },
+  NOT_ALLOWED: { title: '학생 API로 PC 값을 받을 수 없음', next: ['시작 틀이 0.2.21 이상인지 확인합니다(프로젝트 폴더에서 git pull).', '앱을 다시 켜고 「다시 조회」를 누릅니다.'] },
+};
+const PC_DEFAULT_HELP = { title: '응답을 확인할 수 없음', next: ['「다시 조회」를 누릅니다.', '계속되면 「도움정보 불러오기」로 도움정보를 복사해 담당자에게 보냅니다.'] };
+function pcReasonNext(reason) {
+  if (reason.includes('permission_denied')) return '관리자 권한으로 바꾸지 말고 담당자에게 읽기 권한을 확인합니다.';
+  if (reason.includes('unsupported')) return 'Windows에서만 읽는 항목입니다. 이 운영체제에서는 확인 불가가 정상입니다.';
+  if (reason.includes('timeout') || reason.includes('query_failed') || reason.includes('cancelled')) return '잠시 뒤 「다시 조회」를 누릅니다.';
+  return '「다시 조회」를 누르고, 계속되면 도움정보를 담당자에게 보냅니다.';
+}
+function pcJudge(key, m) {
+  if (!m || !m.ok) return 'unknown';
+  if (key === 'cpu') return m.cpu >= PC_LIMITS.cpuPercent ? 'warn' : 'ok';
+  if (key === 'memory') return (100 * m.used) / m.total >= PC_LIMITS.memoryPercent ? 'warn' : 'ok';
+  if (key === 'disk') return (100 * m.free) / m.total < PC_LIMITS.diskFreePercent ? 'warn' : 'ok';
+  if (key === 'firewall') return m.profiles.some((pr) => !pr.enabled) ? 'warn' : 'ok';
+  return 'ok';
+}
+
+function pcErrorPanel(pc) {
+  if (pc.phase === 'error') {
+    const help = Object.hasOwn(PC_ERROR_HELP, pc.errorCode) ? PC_ERROR_HELP[pc.errorCode] : PC_DEFAULT_HELP;
+    const panel = node('div', null, { class: 'state state-error', role: 'alert', 'data-student-pc-error': pc.errorCode || 'unknown' });
+    panel.append(node('p', `조회 실패: ${help.title} (${pc.errorCode || '코드 없음'})`), node('p', `안 된 항목: ${PC_ITEMS.map(([, label]) => label).join(' · ')}`));
+    const ol = node('ol'); for (const step of help.next) ol.append(node('li', step));
+    panel.append(node('p', '다음에 할 일:'), ol, node('p', `${pc.lastGoodAt ? `지난 성공 실측(${pcTime(pc.lastGoodAt)})은` : '지난 값은'} 현재 상태로 보여 주지 않습니다. 예시 값으로 채우지 않습니다.`));
+    return panel;
+  }
+  if (pc.phase === 'ok' && pc.current) {
+    const failed = PC_ITEMS.filter(([key]) => !(pc.current.metrics[key] && pc.current.metrics[key].ok));
+    if (!failed.length) return null;
+    const panel = node('div', null, { class: 'state state-empty', role: 'status', 'data-student-pc-error': 'partial' });
+    panel.append(node('p', `일부 항목을 읽지 못했습니다(${failed.length}개). 나머지 값은 이번 실측입니다.`));
+    const ul = node('ul');
+    for (const [key, label] of failed) {
+      const reason = pc.current.metrics[key] ? pc.current.metrics[key].reason : '값 없음';
+      ul.append(node('li', `${label}: ${reason} → 다음에 할 일: ${pcReasonNext(reason)}`));
+    }
+    panel.append(ul);
+    return panel;
+  }
+  return null;
+}
+
+function pcTrend(pc) {
+  const wrap = node('div', null, { 'data-student-pc-trend': 'final-day4' });
+  wrap.append(node('h4', `② 상태 추이 (최근 조회 최대 ${PC_HISTORY_MAX}개)`));
+  if (!pc.history.length) { wrap.append(node('p', '아직 성공한 조회가 없습니다. 조회할 때마다 한 줄씩 쌓입니다.', { class: 'muted' })); return wrap; }
+  const table = node('table'); const head = node('tr');
+  for (const t of ['잰 시각', 'CPU 사용률', '메모리 사용률', '디스크 남은 공간', '방화벽']) head.append(node('th', t, { scope: 'col' }));
+  table.append(head);
+  const pctCell = (v, label) => {
+    const td = node('td');
+    if (v == null) { td.textContent = '확인 불가'; return td; }
+    td.append(node('meter', null, { min: '0', max: '100', value: v.toFixed(1), 'aria-label': `${label} ${v.toFixed(1)}%` }), document.createTextNode(` ${v.toFixed(1)} %`));
+    return td;
+  };
+  for (const h of pc.history) {
+    const tr = node('tr');
+    tr.append(node('td', pcTime(h.at)), pctCell(h.cpu, 'CPU 사용률'), pctCell(h.mem, '메모리 사용률'),
+      node('td', h.diskFree == null ? '확인 불가' : `${h.diskFree.toFixed(1)} GB`), node('td', h.firewall == null ? '확인 불가' : `${h.firewall}/3 켜짐`));
+    table.append(tr);
+  }
+  wrap.append(table);
+  return wrap;
+}
+
+function pcLog(pc) {
+  const wrap = node('div', null, { 'data-student-pc-log': 'final-day4' });
+  wrap.append(node('h4', '③ 점검 기록 (최신 순)'));
+  if (!pc.log.length) { wrap.append(node('p', '아직 점검 기록이 없습니다.', { class: 'muted' })); return wrap; }
+  const ol = node('ol');
+  for (const item of pc.log) ol.append(node('li', item.text, { 'data-pc-log-result': item.ok ? 'ok' : 'failed' }));
+  wrap.append(ol, node('p', '② 추이와 ③ 기록은 이 화면 메모리에만 있고 저장하지 않습니다. 화면을 새로 고치면 지워집니다.', { class: 'muted' }));
+  return wrap;
+}
+
 function renderPcDashboard(pc, onRequest, input) {
-  const box = node('section', null, { 'data-student-pc-dashboard': 'final-day2', 'aria-live': 'polite' });
+  const box = node('section', null, { 'data-student-pc-dashboard': 'final-day4', 'aria-live': 'polite', 'aria-busy': pc.phase === 'loading' ? 'true' : 'false' });
   box.append(node('h3', '내 PC 관제 대시보드'));
-  box.append(node('p', '제공 「내 PC 상태」와 같은 값(/api/pc/status)을 받아 이번 값과 지난 조회 값을 비교합니다. 관리자 권한을 쓰지 않고, 이 칸의 값은 모두 이 PC 실측입니다(예시 값 없음).', { class: 'muted' }));
+  box.append(node('p', '제공 「내 PC 상태」와 같은 값(/api/pc/status)을 받아 보여 줍니다. 관리자 권한을 쓰지 않고, 이 칸의 값은 모두 이 PC 실측입니다(예시 값 없음).', { class: 'muted' }));
   const bar = node('div', null, { class: 'row' });
-  const button = node('button', pc.phase === 'loading' ? '읽는 중…' : '내 PC 실측 조회', { type: 'button', class: 'btn' });
-  if (pc.phase === 'loading') button.setAttribute('disabled', '');
+  const label = pc.phase === 'loading' ? '읽는 중…' : pc.count === 0 ? '내 PC 조회' : '다시 조회';
+  const button = node('button', label, { type: 'button', class: 'btn', 'data-student-pc-button': 'refresh' });
+  if (pc.phase === 'loading') button.setAttribute('aria-disabled', 'true');
   button.addEventListener('click', onRequest);
+  button.addEventListener('focus', () => { pc.keepFocus = true; });
+  button.addEventListener('blur', (event) => { if (event.relatedTarget) pc.keepFocus = false; });
   bar.append(button);
   const stale = pc.current ? Date.now() - pc.current.measuredAt > PC_STALE_MS : false;
   let line;
-  if (pc.phase === 'loading') line = '이 PC에서 읽는 중입니다.';
-  else if (pc.phase === 'error') line = `이번 조회 실패: ${pc.error} · 지난 값은 현재 상태로 쓰지 않습니다. 버튼을 직접 다시 누르세요.`;
-  else if (!pc.current) line = '아직 조회하지 않았습니다. 「내 PC 실측 조회」를 누르면 한 번 읽습니다. 자동으로 읽지 않습니다.';
+  if (pc.phase === 'loading') line = `이 PC에서 읽는 중입니다. 잠시 기다려 주세요. (${pc.count}번째 조회)`;
+  else if (pc.phase === 'error') line = `${pc.count}번째 조회 실패 · 아래 안내를 확인하고 「다시 조회」를 누르세요.`;
+  else if (!pc.current) line = '아직 조회하지 않았습니다. 「내 PC 조회」를 누르면 한 번 읽습니다. 자동으로 읽지 않습니다.';
   else {
-    line = `이번 실측 ${pcTime(pc.current.measuredAt)}`;
+    line = `이번 실측 ${pcTime(pc.current.measuredAt)} · ${pc.count}번째 조회`;
     line += pc.previous ? ` · 지난 실측 ${pcTime(pc.previous.measuredAt)} (${Math.round((pc.current.measuredAt - pc.previous.measuredAt) / 1000)}초 전)` : ' · 지난 실측 없음(첫 조회)';
     if (stale) line += ` · 실측 후 ${Math.round((Date.now() - pc.current.measuredAt) / 1000)}초 지나 「오래됨」으로 표시합니다. 다시 조회하세요.`;
   }
   bar.append(node('span', line, { class: 'muted', role: 'status' }));
   box.append(bar);
+  const panel = pcErrorPanel(pc);
+  if (panel) box.append(panel);
+  box.append(node('h4', '① 지금 상태'));
   const shown = pc.phase === 'error' ? { measuredAt: null, metrics: {} } : pc.current;
   const grid = node('div', null, { class: 'grid-2' });
   for (const [key, title] of [['cpu', 'CPU 사용률'], ['memory', '메모리 사용량'], ['disk', '디스크 남은 공간'], ['firewall', 'Windows 방화벽']]) {
     const metricSource = shown && pc.phase === 'error' ? { measuredAt: null, metrics: { [key]: { ok: false, reason: pc.error } } } : shown;
     grid.append(pcCard(key, title, metricSource, pc.previous, stale));
   }
-  box.append(grid);
+  box.append(grid, pcTrend(pc), pcLog(pc));
   const legend = node('p', `▲▼ = 지난 조회 대비 변화 · 주의 기준: CPU ${PC_LIMITS.cpuPercent}% 이상, 메모리 ${PC_LIMITS.memoryPercent}% 이상, 디스크 남은 공간 ${PC_LIMITS.diskFreePercent}% 미만, 꺼진 방화벽 프로필 · 확인 불가 = 이번에 읽지 못함(0이나 예시 값으로 채우지 않음) · 「주의」는 문제 확인이 필요하다는 뜻이며 악성코드·침해 판정이 아닙니다.`, { class: 'muted' });
-  box.append(legend, recordsTable(pc, input));
+  box.append(recordsTable(pc, input), legend);
+  // 다시 그리면서 버튼이 바뀌어 초점이 사라진 경우에만 새 버튼으로 초점을 되돌립니다(다른 곳으로 옮긴 초점은 건드리지 않음).
+  if (pc.keepFocus) {
+    queueMicrotask(() => {
+      const doc = button.ownerDocument;
+      if (button.isConnected && doc && (!doc.activeElement || doc.activeElement === doc.body)) button.focus();
+    });
+  }
   return box;
 }
 
 export function createStudentView({ api, onChange } = {}) {
-  // 내 PC 대시보드 상태(화면을 다시 그려도 유지). 확인 티켓·비밀값은 없습니다.
-  const pc = { phase: 'idle', current: null, previous: null, error: null };
+  // 내 PC 대시보드 상태(화면을 다시 그려도 유지, 저장하지 않음). 확인 티켓·비밀값은 없습니다.
+  const pc = { phase: 'idle', current: null, previous: null, error: null, errorCode: null, count: 0, history: [], log: [], lastGoodAt: null, keepFocus: false };
   const rerender = () => { if (typeof onChange === 'function') onChange(); };
   async function requestPc() {
-    if (pc.phase === 'loading') return;
-    if (!api || typeof api.get !== 'function') { pc.phase = 'error'; pc.error = '학생 API를 사용할 수 없음'; rerender(); return; }
+    if (pc.phase === 'loading') return; // 읽는 동안 다시 눌러도 중복 요청하지 않음
+    pc.count += 1;
+    if (!api || typeof api.get !== 'function') {
+      pc.phase = 'error'; pc.errorCode = 'STUDENT_API_MISSING'; pc.error = '학생 API를 사용할 수 없음';
+      pc.log.unshift({ ok: false, text: `요청 시각 ${pcTime(Date.now())} · 조회 실패(STUDENT_API_MISSING)` }); rerender(); return;
+    }
     pc.phase = 'loading'; rerender();
     let result;
     try { result = await api.get(PC_PATH); } catch { result = null; }
     const parsed = parsePcResult(result);
     if (parsed) {
       if (pc.current) pc.previous = pc.current;
-      pc.current = parsed; pc.phase = 'ok'; pc.error = null;
+      pc.current = parsed; pc.phase = 'ok'; pc.error = null; pc.errorCode = null; pc.lastGoodAt = parsed.measuredAt;
+      const m = parsed.metrics;
+      pc.history.push({
+        at: parsed.measuredAt,
+        cpu: m.cpu.ok ? m.cpu.cpu : null,
+        mem: m.memory.ok ? (100 * m.memory.used) / m.memory.total : null,
+        diskFree: m.disk.ok ? gb(m.disk.free) : null,
+        firewall: m.firewall.ok ? m.firewall.profiles.filter((pr) => pr.enabled).length : null,
+      });
+      if (pc.history.length > PC_HISTORY_MAX) pc.history.shift();
+      const states = PC_ITEMS.map(([key]) => pcJudge(key, m[key]));
+      pc.log.unshift({ ok: true, text: `${pcTime(parsed.measuredAt)} · 조회 성공 · 주의 ${states.filter((x) => x === 'warn').length} · 확인 불가 ${states.filter((x) => x === 'unknown').length}` });
     } else {
-      const code = isObject(result) && isObject(result.error) ? safeCode(result.error.code) : '응답 형식 확인 불가';
-      pc.phase = 'error'; pc.error = code === 'NOT_ALLOWED' ? '이 시작 틀에서는 학생 API로 PC 값을 받을 수 없음(NOT_ALLOWED)' : `조회 실패(${code})`;
+      const code = isObject(result) && isObject(result.error) ? safeCode(result.error.code) : 'RESPONSE_UNVERIFIED';
+      pc.phase = 'error'; pc.errorCode = code;
+      pc.error = code === 'NOT_ALLOWED' ? '이 시작 틀에서는 학생 API로 PC 값을 받을 수 없음(NOT_ALLOWED)' : `조회 실패(${code})`;
       if (pc.current) pc.previous = pc.current;
       pc.current = null;
+      pc.log.unshift({ ok: false, text: `요청 시각 ${pcTime(Date.now())} · 조회 실패(${code})` });
     }
+    if (pc.log.length > PC_LOG_MAX) pc.log.length = PC_LOG_MAX;
     rerender();
   }
   function renderStatusWithPc(input) {
     const box = renderStatus(input);
-    box.insertBefore(renderPcDashboard(pc, requestPc, input), box.firstChild); // 관제 대시보드형: 카드 4개를 칸 맨 위에
+    box.insertBefore(renderPcDashboard(pc, requestPc, input), box.firstChild); // 관제 대시보드형: 핵심 기능을 칸 맨 위에
     return box;
   }
   return {
