@@ -172,4 +172,4 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\start-alekov.ps1
 
 | 확인 | 결과 |
 |---|---|
-| 안내만 보고 처음부터 실행 | **미확인** (학생이 다른 사람 또는 새 폴더로 확인 예정) |
+| 고친 안내(`docs/QUICK_START.md`)만 보고 처음부터 다시 실행 (2026-10-30 오후 4:47 무렵) | 막힌 곳 없이 끝까지 진행됨 — **학생 진술**(화면 캡처 없음). 추가로 고친 곳 없음 |
